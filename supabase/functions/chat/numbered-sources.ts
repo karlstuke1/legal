@@ -122,6 +122,8 @@ ERLAUBT:
 - "Mehrere Quellen stützen das [Quellen 2, 5]."
 - "Vgl. ständige Rechtsprechung" wenn keine konkrete Quelle passt
 
+Wenn eine Quelle in der nummerierten Liste als "Rechtssatz:" oder "Leitsatz:" erkennbar ist und die Nutzerfrage unmittelbar beantwortet, gib diese Kernaussage am Anfang der Antwort wörtlich oder nahezu wörtlich wieder und belege sie mit [Quelle N]. Schreibe dabei weiterhin KEINE RS-Nummer, Geschäftszahl, ECLI oder URL in den Antworttext.
+
 Wenn KEINE passende Quelle in der Liste ist: schreibe "vgl. ständige Rechtsprechung" oder lass die Quellenangabe weg. Das ist immer besser als ein erfundenes Zitat.`;
 }
 

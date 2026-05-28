@@ -18,6 +18,7 @@ Environment: https://legal-gamma-three.vercel.app
 - Live UI AngG test after exact-norm seeding: `Paragraf 20 Angestelltengesetz` answered in about 30 seconds, cited `§ 20 AngG`, and rendered direct RIS `NormDokument.wxe` links instead of `Ergebnis.wxe` search pages.
 - Same-chat follow-up test answered in about 33 seconds, preserved context, kept the exact `§ 20 AngG` link, and had no console errors or horizontal overflow in the in-app browser viewport.
 - Route smoke checks passed for `/app/matters`, `/app/knowledge`, `/app/compare`, `/app/pinned`, and `/app/settings`: pages rendered, no console errors, no horizontal overflow at the tested width.
+- Live UI regression for `Unterbrechen gerichtliche Schritte, die die Geltendmachung eines Rechtes bloß vorbereiten, die Verjährung?` now finds the exact RIS Rechtssatz source `RS0034826`, shows the direct `Dokument.wxe` link, and does not repeat the old fabricated references (`RS0034891`, `RS0034403`, `RS0034830`, `RS0034431`, `2 Ob 72/10k`, `1 Ob 204/21p`, `4 Ob 110/07f`, `2 Ob 10/09v`).
 
 ## Fixed During This QA Pass
 
@@ -32,6 +33,10 @@ Environment: https://legal-gamma-three.vercel.app
 - Added deterministic exact-norm seeding in the chat function: explicit `§` / `Paragraf` questions prefetch verified RIS norm sources before the LLM chooses tools.
 - Persisted assistant-message source metadata so reloads and historical chats retain verified source context for source panels and inline link resolution.
 - Fixed the no-source path so invented `[Quelle N]` tokens are stripped even when the server emits an empty `source_map`.
+- Fixed RIS Judikatur parsing for the current OGD schema by reading nested `Metadaten.Allgemein`, `Metadaten.Technisch`, and `Metadaten.Judikatur.Justiz` fields. Rechtssatz sources now extract the actual XML `ct="rechtssatz"` text and label the source panel with the exact Rechtssatz rather than only a generic OGH decision title.
+- Added a deterministic frontend fallback that inserts a `[Quelle N]` token when the model returns an answer without any source token even though the server emitted verified sources. This keeps persisted answers linked to verified evidence.
+- Added a prompt rule requiring directly responsive `Rechtssatz:` / `Leitsatz:` source text to be surfaced at the start of the answer with `[Quelle N]`, while still forbidding RS numbers, GZ, ECLI, and URLs in the answer body.
+- Added a deterministic Rechtssatz anchoring pass that picks the source sentence with strong overlap against the generated answer. This prevents unrelated Rechtssatz results from being surfaced just because they appear earlier in the source map.
 
 ## Improvement Candidates
 
@@ -59,3 +64,6 @@ Environment: https://legal-gamma-three.vercel.app
 - Live UI chat: submitted `Welche Kuendigungsfristen gelten nach Paragraf 20 Angestelltengesetz fuer Arbeitgeber? Bitte mit Quellen.`, answer rendered with exact `§ 20 AngG` RIS `NormDokument.wxe` links and no console errors.
 - Live UI follow-up: submitted `Und wie unterscheidet sich das von der Arbeitnehmerkuendigung? Bitte kurz.`, answer preserved context and source links.
 - Route smoke: `/app/matters`, `/app/knowledge`, `/app/compare`, `/app/pinned`, `/app/settings`.
+- Live direct RIS API check: exact query text with `bloß` / `Verjährung` returned the Rechtssatz document `JJR_19790510_OGH0002_0080OB00514_7900000_001` and `RS0034826`.
+- Live UI RS0034826 regression: because browser automation could not type `ß` / `ä`, submitted the transliterated prompt with `bloss` / `Verjaehrung`; retrieval still resolved the exact official RIS Rechtssatz and direct document URL.
+- Final live UI RS0034826 regression after source anchoring: answer body begins with `Gerichtliche Schritte, die die Geltendmachung eines Rechtes bloß vorbereiten, unterbrechen die Verjährung nicht.` and links it to the verified source footnote; source panel shows `RIS-Justiz RS0034826`; no old fabricated references were present; console had no app errors.

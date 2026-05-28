@@ -16,6 +16,7 @@ import { generateThinkingSteps, createThinkingController, isDraftIntent } from "
 import { analyzeCitations, type CitationAnalysis, type ExtractedCitation } from "@/lib/citation-engine";
 import { applyCitationScrub } from "@/lib/scrub-citations";
 import { renderSourceTokens, type SourceMapEntry } from "@/lib/render-source-tokens";
+import { ensureAtLeastOneSourceToken, ensureResponsiveRechtssatzIntro } from "@/lib/answer-source-anchoring";
 import { toast } from "@/hooks/use-toast";
 import type { ChatFilters, ChatMessage } from "@/lib/types";
 import type { ThinkingStep } from "@/components/ThinkingSteps";
@@ -1077,6 +1078,9 @@ export function useChatSend(
                   if (scrub.removedCount > 0 || scrub.rewrittenCount > 0) {
                     console.warn(`[scrub-citations] Removed ${scrub.removedCount}, rewrote ${scrub.rewrittenCount} citation(s).`);
                   }
+
+                  stagedText = ensureResponsiveRechtssatzIntro(stagedText, serverSourceMap);
+                  stagedText = ensureAtLeastOneSourceToken(stagedText, serverSourceMap);
 
                   // Render [Quelle N] tokens → footnote links. Run this
                   // even with an empty source map so disobedient invented

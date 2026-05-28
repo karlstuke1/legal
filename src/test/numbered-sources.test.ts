@@ -124,6 +124,13 @@ describe("buildCitationRuleBlock", () => {
     const rules = buildCitationRuleBlock();
     expect(rules).toContain("ständige Rechtsprechung");
   });
+
+  it("requires directly responsive Rechtssatz sources to be surfaced in the answer without RS/GZ leakage", () => {
+    const rules = buildCitationRuleBlock();
+    expect(rules).toContain('als "Rechtssatz:" oder "Leitsatz:"');
+    expect(rules).toContain("wörtlich oder nahezu wörtlich");
+    expect(rules).toContain("KEINE RS-Nummer");
+  });
 });
 
 describe("parseLegacySourceContext", () => {

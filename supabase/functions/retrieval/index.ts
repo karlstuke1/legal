@@ -763,6 +763,43 @@ function safeStr(val: unknown): string {
   return String(val || "");
 }
 
+function asArray<T>(value: T | T[] | undefined | null): T[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function stripRisXmlText(value: string): string {
+  return value
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractRisXmlAbsatz(xml: string, ct: string): string {
+  const re = new RegExp(`<absatz[^>]+ct=["']${escapeRegExp(ct)}["'][^>]*>([\\s\\S]*?)<\\/absatz>`, "i");
+  const match = xml.match(re);
+  return match ? stripRisXmlText(match[1]) : "";
+}
+
+async function fetchRisXmlAbsatz(xmlUrl: string, ct: string): Promise<string> {
+  if (!xmlUrl) return "";
+  try {
+    const resp = await fetchWithTimeout(xmlUrl, 5000);
+    if (!resp.ok) return "";
+    return extractRisXmlAbsatz(await resp.text(), ct);
+  } catch {
+    return "";
+  }
+}
+
 /** Convert RIS XML document URLs to human-readable, canonical HTML (.wxe) URLs.
  *  - XML doc URLs → Dokument.wxe
  *  - JustizEntscheidung.wxe → Dokument.wxe
@@ -1280,27 +1317,40 @@ async function parseRISJudikatur(resp: Response, isRechtssatz: boolean = false):
 
     for (const hit of hitArray.slice(0, 5)) {
       // Support multiple Judikatur sub-schemas
-      const meta = hit?.Data?.Metadaten?.JudikaturRs
-        || hit?.Data?.Metadaten?.JudikaturJustiz
-        || hit?.Data?.Metadaten?.Judikatur
-        || hit?.Data?.Metadaten || {};
+      const metadaten = hit?.Data?.Metadaten || {};
+      const meta = metadaten?.JudikaturRs
+        || metadaten?.JudikaturJustiz
+        || metadaten?.Judikatur
+        || metadaten || {};
+      const justiz = meta?.Justiz || {};
+      const allgemein = metadaten?.Allgemein || {};
+      const technisch = metadaten?.Technisch || {};
       const docList = hit?.Data?.Dokumentliste?.ContentReference;
       const docInfo = Array.isArray(docList) ? docList[0] : docList || {};
       const rawGz = safeStr(meta?.Geschaeftszahl);
       const contentUrls = docInfo?.Urls?.ContentUrl;
-      const firstUrl = Array.isArray(contentUrls) ? contentUrls[0] : contentUrls;
-      const docUrl = normalizeRisUrl(safeStr(firstUrl?.Url));
+      const contentUrlList = asArray(contentUrls);
+      const xmlContentUrl = contentUrlList.find((u: any) => safeStr(u?.DataType).toLowerCase() === "xml");
+      const htmlContentUrl = contentUrlList.find((u: any) => safeStr(u?.DataType).toLowerCase() === "html");
+      const firstUrl = htmlContentUrl || xmlContentUrl || contentUrlList[0];
+      const xmlUrl = safeStr(xmlContentUrl?.Url);
+      const docUrl = normalizeRisUrl(safeStr(allgemein?.DokumentUrl) || safeStr(firstUrl?.Url));
       const firstGz = rawGz.split(";")[0].trim();
       const normen = safeStr(meta?.Normen);
-      const gerichtstyp = safeStr(meta?.Gerichtstyp) || safeStr(meta?.Justiz?.Gerichtstyp);
+      const gerichtstyp = safeStr(meta?.Gerichtstyp) || safeStr(justiz?.Gerichtstyp) || safeStr(justiz?.Gericht) || safeStr(technisch?.Organ);
       const dokumenttyp = safeStr(meta?.Dokumenttyp);
+      const isActualRechtssatz = isRechtssatz || /rechtssatz/i.test(dokumenttyp);
       const rawDate = safeStr(meta?.Entscheidungsdatum);
       
       // Extract Dokumentnummer for direct linking (e.g. JJT_20220615_OGH0002_0060OB01400_18H0000_000)
-      const dokumentnummer = safeStr(meta?.Dokumentnummer) || safeStr(hit?.Data?.Dokumentnummer) || "";
+      const dokumentnummer = safeStr(meta?.Dokumentnummer) || safeStr(hit?.Data?.Dokumentnummer) || safeStr(technisch?.ID) || "";
 
       // Extract Rechtssatznummer (RS number) if available — this is the key identifier for Austrian case law
-      const rsNummer = safeStr(meta?.Rechtssatznummer) || dokumentnummer;
+      const ecli = safeStr(meta?.EuropeanCaseLawIdentifier);
+      const rsNummer = safeStr(meta?.Rechtssatznummer)
+        || safeStr(justiz?.Rechtssatznummern)
+        || ecli.match(/RS\d{5,}/i)?.[0]
+        || dokumentnummer;
       // Support both RS0094010 and RS94010 formats, also with leading zeros stripped
       const rsMatch = rsNummer.match(/RS0*(\d{5,})/);
       const rsRef = rsMatch ? `RIS-Justiz RS${rsMatch[1].padStart(7, "0")}` : "";
@@ -1309,8 +1359,14 @@ async function parseRISJudikatur(resp: Response, isRechtssatz: boolean = false):
       const entscheidungsdatum = formatRISDate(rawDate);
 
       let bestTitle = "";
-      const spruch = safeStr(meta?.RechtssatzText || meta?.Spruch || meta?.Kurztext || "");
-      if (normen && normen.length > 5 && normen !== "undefined") {
+      let spruch = safeStr(meta?.RechtssatzText || meta?.Spruch || meta?.Kurztext || "");
+      if (isActualRechtssatz && !spruch && xmlUrl) {
+        spruch = await fetchRisXmlAbsatz(xmlUrl, "rechtssatz");
+      }
+      if (isActualRechtssatz && spruch.length > 10) {
+        const spruchShort = spruch.length > 140 ? spruch.slice(0, 140) + "…" : spruch;
+        bestTitle = `${dokumenttyp || "Rechtssatz"}: ${spruchShort}`;
+      } else if (normen && normen.length > 5 && normen !== "undefined") {
         const normShort = normen.length > 100 ? normen.slice(0, 100) + "…" : normen;
         bestTitle = `${dokumenttyp || "Rechtssatz"} zu ${normShort}`;
       } else if (spruch && spruch.length > 10) {
@@ -1321,7 +1377,9 @@ async function parseRISJudikatur(resp: Response, isRechtssatz: boolean = false):
       }
       // Prefix with court + case number + date for scanability
       const dateTag = entscheidungsdatum ? ` (${entscheidungsdatum})` : "";
-      const fullTitle = gerichtstyp
+      const fullTitle = isActualRechtssatz && spruch.length > 10
+        ? bestTitle
+        : gerichtstyp
         ? `${gerichtstyp} ${firstGz}${dateTag}: ${bestTitle}`
         : `${firstGz}${dateTag}: ${bestTitle}`;
 
@@ -1345,15 +1403,15 @@ async function parseRISJudikatur(resp: Response, isRechtssatz: boolean = false):
 
       // For Rechtssatz results, include RS-number prominently
       const docRefDisplay = rsRef || firstGz || "";
-      const snippetParts = [rsRef, normen?.slice(0, 250)].filter(Boolean);
+      const snippetParts = [spruch, normen?.slice(0, 250)].filter(Boolean);
 
       results.push({
         doc_ref: docRefDisplay,
         title: fullTitle,
         date: entscheidungsdatum || rawDate || "",
         url: risUrl,
-        score: isRechtssatz ? 0.90 : 0.85,
-        highlights: [firstGz, rsRef, gerichtstyp, normen?.slice(0, 80)].filter(Boolean),
+        score: isActualRechtssatz && spruch ? 0.96 : isActualRechtssatz ? 0.90 : 0.85,
+        highlights: [spruch, firstGz, rsRef, gerichtstyp, normen?.slice(0, 80)].filter(Boolean),
         provider: "RIS",
         pinpoint: rsRef || firstGz || undefined,
         snippet: snippetParts.join(" | ") || "",
