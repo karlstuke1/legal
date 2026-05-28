@@ -1,4 +1,4 @@
-project_id = "legal"
+project_id = "ahozntwazjtpbjswajnc"
 
 [functions.chat]
 verify_jwt = false
