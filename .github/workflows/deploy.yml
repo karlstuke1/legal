@@ -1,0 +1,158 @@
+name: CI and Deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_SUPABASE_PROJECT_ID: ${{ vars.VITE_SUPABASE_PROJECT_ID }}
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_APP_BASE_URL: ${{ vars.VITE_APP_BASE_URL }}
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Deno check Edge Functions
+        run: deno check supabase/functions/*/index.ts
+
+      - name: Verify no legacy platform references
+        run: |
+          legacy_pattern="$(node <<'NODE'
+          const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const terms = [
+            "LOVABLE_API" + "_KEY",
+            "ai.gateway." + "lovable" + "." + "dev",
+            "@" + "lovable" + "." + "dev",
+            "rechtsassistent." + "lovable" + "." + "app",
+            "lovable" + "." + "app",
+            "lovable" + "project" + "." + "com",
+            "lovable" + "-" + "tagger",
+          ];
+          console.log(terms.map(escape).join("|"));
+          NODE
+          )"
+          secret_pattern="$(node <<'NODE'
+          const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const terms = ["sk" + "-or-v1", "TEST_OPENROUTER" + "_API_KEY"];
+          console.log(terms.map(escape).join("|"));
+          NODE
+          )"
+          ! rg -n "$legacy_pattern" . --glob '!node_modules/**' --glob '!dist/**'
+          ! rg -n "$secret_pattern" . --glob '!node_modules/**' --glob '!dist/**'
+
+  deploy-supabase:
+    name: Deploy Supabase
+    runs-on: ubuntu-latest
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+      APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+      CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Validate deployment config
+        run: |
+          : "${SUPABASE_ACCESS_TOKEN:?Missing SUPABASE_ACCESS_TOKEN secret}"
+          : "${SUPABASE_PROJECT_REF:?Missing SUPABASE_PROJECT_REF secret}"
+          : "${SUPABASE_DB_PASSWORD:?Missing SUPABASE_DB_PASSWORD secret}"
+          : "${OPENROUTER_API_KEY:?Missing OPENROUTER_API_KEY secret}"
+          : "${FIRECRAWL_API_KEY:?Missing FIRECRAWL_API_KEY secret}"
+          : "${APP_BASE_URL:?Missing APP_BASE_URL repository variable}"
+          : "${CORS_ALLOWED_ORIGINS:?Missing CORS_ALLOWED_ORIGINS repository variable}"
+
+      - name: Link project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Push database migrations
+        run: supabase db push --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Set Edge Function secrets
+        run: |
+          supabase secrets set \
+            OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
+            OPENROUTER_MODEL_HIGH_QUALITY="openai/gpt-5.5" \
+            OPENROUTER_EMBEDDING_MODEL="openai/text-embedding-3-small" \
+            FIRECRAWL_API_KEY="$FIRECRAWL_API_KEY" \
+            APP_BASE_URL="$APP_BASE_URL" \
+            CORS_ALLOWED_ORIGINS="$CORS_ALLOWED_ORIGINS" \
+            --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy Edge Functions
+        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"
+
+  deploy-vercel:
+    name: Deploy Vercel
+    runs-on: ubuntu-latest
+    needs: deploy-supabase
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Vercel config
+        run: |
+          : "${VERCEL_ORG_ID:?Missing VERCEL_ORG_ID secret}"
+          : "${VERCEL_PROJECT_ID:?Missing VERCEL_PROJECT_ID secret}"
+
+      - name: Pull Vercel environment
+        run: npx vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Build with Vercel
+        run: npx vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Deploy to Vercel
+        run: npx vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"

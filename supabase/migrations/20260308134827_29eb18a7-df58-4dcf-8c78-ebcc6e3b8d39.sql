@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles ADD COLUMN default_legal_area text DEFAULT 'allgemein';

@@ -1,0 +1,49 @@
+project_id = "legal"
+
+[functions.chat]
+verify_jwt = false
+
+[functions.retrieval]
+verify_jwt = false
+
+[functions.invite-member]
+verify_jwt = false
+
+[functions.document-analyze]
+verify_jwt = false
+
+[functions.pseudonymize]
+verify_jwt = false
+
+[functions.title-gen]
+verify_jwt = false
+
+[functions.document-export]
+verify_jwt = false
+
+[functions.context-summary]
+verify_jwt = false
+
+[functions.embed-documents]
+verify_jwt = false
+
+[functions.semantic-search]
+verify_jwt = false
+
+[functions.data-export]
+verify_jwt = false
+
+[functions.delete-account]
+verify_jwt = false
+
+[functions.verify-answer]
+verify_jwt = false
+
+[functions.referral]
+verify_jwt = false
+
+[functions.contract-compare]
+verify_jwt = false
+
+[functions.risk-report]
+verify_jwt = false

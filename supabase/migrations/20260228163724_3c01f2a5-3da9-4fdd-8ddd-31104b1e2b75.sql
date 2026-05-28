@@ -1,0 +1,1 @@
+UPDATE plans SET monthly_queries_limit = 500 WHERE plan = 'free';

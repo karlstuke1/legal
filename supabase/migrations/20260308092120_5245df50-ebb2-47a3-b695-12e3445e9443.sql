@@ -1,0 +1,1 @@
+ALTER TABLE public.message_feedback ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}'::jsonb;
