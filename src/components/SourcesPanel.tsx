@@ -97,7 +97,6 @@ const JURISDICTION_CHIPS = [
 ];
 
 export function SourcesPanel({ results, isLoading }: SourcesPanelProps) {
-  const totalResults = results.reduce((sum, r) => sum + (r.results?.length ?? 0), 0);
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
   const [jurisdictionFilter, setJurisdictionFilter] = useState<string | null>(null);
@@ -105,8 +104,11 @@ export function SourcesPanel({ results, isLoading }: SourcesPanelProps) {
   // opens as a bottom drawer triggered by the floating source-count FAB.
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  const normalizedResults = useMemo(() => normalizeSourceGroups(results), [results]);
+  const totalResults = normalizedResults.reduce((sum, r) => sum + (r.results?.length ?? 0), 0);
+
   const filteredResults = useMemo(() => {
-    let filtered = results;
+    let filtered = normalizedResults;
 
     // Filter by jurisdiction
     if (jurisdictionFilter) {
@@ -130,7 +132,7 @@ export function SourcesPanel({ results, isLoading }: SourcesPanelProps) {
     }
 
     return filtered;
-  }, [results, searchQuery, jurisdictionFilter]);
+  }, [normalizedResults, searchQuery, jurisdictionFilter]);
 
   // Harvey-style: never disappear on desktop. On mobile we still hide the
   // floating-count button when there's nothing to count (no chip-with-zero
@@ -269,6 +271,39 @@ export function SourcesPanel({ results, isLoading }: SourcesPanelProps) {
       <div className="flex-1 min-h-0 flex flex-col">{panelBody}</div>
     </aside>
   );
+}
+
+function normalizeSourceGroups(
+  groups: { provider: string; results: RetrievalResult[]; latencyMs?: number }[],
+) {
+  const byProvider = new Map<string, { provider: string; results: RetrievalResult[]; latencyMs?: number }>();
+  const seen = new Set<string>();
+
+  for (const group of groups) {
+    for (const result of group.results || []) {
+      const provider = result.provider || group.provider;
+      const dedupeKey = [
+        provider,
+        result.url || "",
+        result.doc_ref || "",
+        result.title || "",
+      ].join("::").toLowerCase();
+
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+
+      const existing = byProvider.get(provider) || {
+        provider,
+        results: [],
+        latencyMs: group.latencyMs,
+      };
+      existing.results.push(result);
+      existing.latencyMs = Math.max(existing.latencyMs || 0, group.latencyMs || 0);
+      byProvider.set(provider, existing);
+    }
+  }
+
+  return Array.from(byProvider.values());
 }
 
 function ProviderGroup({

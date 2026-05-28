@@ -43,7 +43,8 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { query, providers: requestedProviders, jurisdiction } = await req.json();
+    const body = await req.json();
+    const { query, providers: requestedProviders, jurisdiction } = body;
     if (!query || typeof query !== "string" || query.length > 5000) {
       return new Response(JSON.stringify({ error: "Invalid query" }), {
         status: 400,
@@ -52,6 +53,20 @@ Deno.serve(async (req) => {
     }
 
     let providerNames: string[] = requestedProviders || ["RIS", "FINDOK"];
+    const exactNormOnly = body?.exactNormOnly === true;
+
+    if (exactNormOnly && providerNames.includes("RIS")) {
+      const exactNormSource = await resolveExactRisNormSource(query);
+      if (exactNormSource) {
+        return new Response(JSON.stringify([{
+          provider: "RIS",
+          results: [exactNormSource],
+          latencyMs: 0,
+        }]), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     // ============================================================
     // SPEED FIX: Run decomposition and reformulation IN PARALLEL
@@ -902,6 +917,20 @@ async function tryBuildVerifiedRisNormSource(
     console.warn(`[RIS] Direct norm verification failed for ${knownLaw}${paragraphNumber ? ` § ${paragraphNumber}` : ""}:`, e);
     return null;
   }
+}
+
+async function resolveExactRisNormSource(query: string): Promise<SearchResult | null> {
+  const paragraphNumber = query.match(/§{1,2}\s*(\d+[a-z]?)/i)?.[1];
+  if (!paragraphNumber) return null;
+
+  const lawKey = query
+    .toLowerCase()
+    .split(/[^a-zäöüß0-9-]+/i)
+    .map((part) => part.trim())
+    .find((part) => !!LAW_ABBREV_MAP[part]);
+
+  if (!lawKey) return null;
+  return tryBuildVerifiedRisNormSource(lawKey, LAW_ABBREV_MAP[lawKey], paragraphNumber);
 }
 
 // ============================================================

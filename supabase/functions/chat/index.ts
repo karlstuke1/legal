@@ -217,11 +217,29 @@ function buildAgentTools(activeJurisdictions?: string[]) {
 
 // Optimization #4: PARLAMENT filter — only include PARLAMENT for legislative queries
 function resolveProvidersForJurisdiction(j: string, activeJurisdictions?: string[], queryHint?: string): string[] {
+  const normalizedHint = normalizeAustrianLegalQuery(queryHint || "");
+  const criminalLawQuery = /\b(stgb|stpo|mord|totschlag|körperverletzung|nötigung|erpressung|untreue|betrug|diebstahl|raub|vorsatz|fahrlässigkeit|strafe|strafrecht)\b/i.test(normalizedHint);
+  const taxQuery = /\b(findok|steuer|abgabe|umsatzsteuer|einkommensteuer|körperschaftsteuer|estg|ustg|baO|finanz|bfg|bmf|finstrg)\b/i.test(normalizedHint);
+
+  if (criminalLawQuery && !taxQuery) {
+    return ["RIS"];
+  }
+
   const providers = ["RIS", "FINDOK"];
   if (queryHint && /\b(regierungsvorlage|ausschuss|gesetzesvorlage|nationalrat|bundesrat|parlament|novelle|begutachtung|erläuterung|initiativantrag|ministerialentwurf|gesetzgebung)\b/i.test(queryHint)) {
     providers.push("PARLAMENT");
   }
   return providers;
+}
+
+function normalizeAustrianLegalQuery(value: string): string {
+  return (value || "")
+    .replace(/(?:^|\s)ö\s*StGB\b/gi, (m) => m.startsWith(" ") ? " StGB" : "StGB")
+    .replace(/\boe\s*StGB\b/gi, "StGB")
+    .replace(/\bösterreichisches\s+StGB\b/gi, "StGB")
+    .replace(/(?:^|\s)ö\s*StPO\b/gi, (m) => m.startsWith(" ") ? " StPO" : "StPO")
+    .replace(/\boe\s*StPO\b/gi, "StPO")
+    .replace(/\bösterreichische\s+StPO\b/gi, "StPO");
 }
 
 function formatToolSourcesForModel(results: any[], limit: number): string {
@@ -239,7 +257,8 @@ async function executeToolCall(
   name: string,
   args: Record<string, string>,
   supabaseUrl: string,
-  serviceKey: string,
+  functionAuthHeader: string,
+  anonKey: string,
   workspaceId?: string,
   activeJurisdictions?: string[],
 ): Promise<{ result: string; sources?: any[] }> {
@@ -255,12 +274,13 @@ async function executeToolCall(
     switch (name) {
       case "search_law": {
         const effectiveJurisdiction = resolveEffectiveJurisdiction(args.jurisdiction, activeJurisdictions);
+        const normalizedQuery = normalizeAustrianLegalQuery(args.query || "");
         // Optimization #4: Pass query to PARLAMENT filter
-        const providers = resolveProvidersForJurisdiction(effectiveJurisdiction, activeJurisdictions, args.query);
+        const providers = resolveProvidersForJurisdiction(effectiveJurisdiction, activeJurisdictions, normalizedQuery);
         const resp = await fetch(`${supabaseUrl}/functions/v1/retrieval`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ query: args.query, providers, jurisdiction: [effectiveJurisdiction] }),
+          headers: { Authorization: functionAuthHeader, apikey: anonKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ query: normalizedQuery, providers, jurisdiction: [effectiveJurisdiction] }),
           signal: AbortSignal.timeout(15000),
         });
         if (!resp.ok) { await resp.text(); return { result: "Recherche fehlgeschlagen." }; }
@@ -273,26 +293,30 @@ async function executeToolCall(
       case "lookup_norm": {
         // Try semantic search first, fall back to live retrieval
         const normJ = resolveEffectiveJurisdiction(args.jurisdiction, activeJurisdictions);
-        const resp = await fetch(`${supabaseUrl}/functions/v1/semantic-search`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ query: args.norm, jurisdiction: normJ, workspace_id: workspaceId || null, threshold: 0.4, limit: 5 }),
-          signal: AbortSignal.timeout(15000),
-        });
+        const normalizedNorm = normalizeAustrianLegalQuery(args.norm || "");
         let results: any[] = [];
-        if (resp.ok) {
-          const data = await resp.json();
-          results = data?.results || [];
+        const explicitNormLookup = /§\s*\d+[a-z]?\b/i.test(normalizedNorm);
+        if (!explicitNormLookup) {
+          const resp = await fetch(`${supabaseUrl}/functions/v1/semantic-search`, {
+            method: "POST",
+            headers: { Authorization: functionAuthHeader, apikey: anonKey, "Content-Type": "application/json" },
+            body: JSON.stringify({ query: normalizedNorm, jurisdiction: normJ, workspace_id: workspaceId || null, threshold: 0.4, limit: 5 }),
+            signal: AbortSignal.timeout(8000),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            results = data?.results || [];
+          }
         }
         // Fallback: if semantic search returned 0 results or failed, use live retrieval
         if (results.length === 0) {
-          console.log(`[tool] lookup_norm fallback to live retrieval for: ${args.norm}`);
-          const providers = resolveProvidersForJurisdiction(normJ, activeJurisdictions, args.norm);
+          console.log(`[tool] lookup_norm fallback to live retrieval for: ${normalizedNorm}`);
+          const providers = resolveProvidersForJurisdiction(normJ, activeJurisdictions, normalizedNorm);
           const fallbackResp = await fetch(`${supabaseUrl}/functions/v1/retrieval`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ query: args.norm, providers, jurisdiction: [normJ] }),
-            signal: AbortSignal.timeout(15000),
+            headers: { Authorization: functionAuthHeader, apikey: anonKey, "Content-Type": "application/json" },
+            body: JSON.stringify({ query: normalizedNorm, providers, jurisdiction: [normJ], exactNormOnly: explicitNormLookup }),
+            signal: AbortSignal.timeout(explicitNormLookup ? 30000 : 15000),
           });
           if (fallbackResp.ok) {
             const fallbackData = await fallbackResp.json();
@@ -304,7 +328,7 @@ async function executeToolCall(
               };
             }
           }
-          return { result: `Keine Einträge für "${args.norm}" gefunden.` };
+          return { result: `Keine Einträge für "${normalizedNorm}" gefunden.` };
         }
         return {
           result: results.map((r: any, i: number) => {
@@ -318,7 +342,7 @@ async function executeToolCall(
       case "analyze_document": {
         const resp = await fetch(`${supabaseUrl}/functions/v1/semantic-search`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+          headers: { Authorization: functionAuthHeader, apikey: anonKey, "Content-Type": "application/json" },
           body: JSON.stringify({ query: (args.query || "") + (args.file_name ? ` ${args.file_name}` : ""), workspace_id: workspaceId || null, threshold: 0.35, limit: 8 }),
           signal: AbortSignal.timeout(15000),
         });
@@ -625,7 +649,8 @@ Deno.serve(async (req) => {
     ];
     const toolEvents: any[] = [];
     let toolRound = 0;
-    const MAX_TOOL_ROUNDS = 4;
+    const MAX_TOOL_ROUNDS = 1;
+    const MAX_TOOL_CALLS_PER_ROUND = 3;
 
     if (!isExam && !skipToolPhase) {
       while (toolRound < MAX_TOOL_ROUNDS) {
@@ -657,8 +682,9 @@ Deno.serve(async (req) => {
 
         const toolData = await toolResp.json();
         const choice = toolData.choices?.[0];
+        const requestedToolCalls = choice?.message?.tool_calls || [];
 
-        if (!choice?.message?.tool_calls?.length) {
+        if (!requestedToolCalls.length) {
           // No tools called — break out of tool loop and let Phase 2
           // generate the full answer with max_tokens=16384.
           // Note: we do NOT add the partial tool-phase content to allMessages,
@@ -669,29 +695,26 @@ Deno.serve(async (req) => {
           break;
         }
 
-        // Add assistant message with tool_calls. CRITICAL: strip the
-        // assistant's free-text `content` from the tool-phase message —
-        // that text often contains hallucinated cites the model wrote
-        // BEFORE seeing tool results, and we don't want Phase 2 to echo
-        // it back. The tool_calls themselves are preserved for OpenAI
-        // schema compatibility (id, function name, arguments).
-        allMessages.push({ ...choice.message, content: "" });
+        const toolResultBlocks: string[] = [];
+        if (requestedToolCalls.length > MAX_TOOL_CALLS_PER_ROUND) {
+          console.warn(`[chat] Capping tool calls from ${requestedToolCalls.length} to ${MAX_TOOL_CALLS_PER_ROUND}`);
+        }
 
-        for (const tc of choice.message.tool_calls) {
+        for (const tc of requestedToolCalls.slice(0, MAX_TOOL_CALLS_PER_ROUND)) {
           let args: Record<string, string> = {};
           try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* ignore */ }
           console.log(`[chat] Tool call round ${toolRound + 1}: ${tc.function.name}`, args);
           toolEvents.push({ type: "tool_start", name: tc.function.name, args });
 
           const { result, sources } = await executeToolCall(
-            tc.function.name, args, supabaseUrl, supabaseKey, workspace_id, jurisdiction
+            tc.function.name, args, supabaseUrl, authHeader, anonKey, workspace_id, jurisdiction
           );
 
-          allMessages.push({
-            role: "tool",
-            tool_call_id: tc.id,
-            content: result,
-          });
+          toolResultBlocks.push([
+            `Tool: ${tc.function.name}`,
+            `Argumente: ${JSON.stringify(args)}`,
+            result,
+          ].join("\n"));
 
           // Merge tool-found sources into the numbered list, continuing
           // the index from wherever we left off. Dedupe by URL so the
@@ -709,6 +732,19 @@ Deno.serve(async (req) => {
             name: tc.function.name,
             count: sources?.length || 0,
             sources: sources?.slice(0, 8),
+          });
+        }
+
+        if (toolResultBlocks.length > 0) {
+          // OpenRouter routes GPT-5.5 through OpenAI's Responses-backed
+          // implementation. Replaying native tool_call/tool messages across
+          // multiple rounds can produce duplicate internal function-call item
+          // ids (for example `fc_2`) and OpenAI rejects the next request.
+          // The model only needs the retrieved evidence, so flatten tool
+          // output into ordinary system context before the next round/final.
+          allMessages.push({
+            role: "system",
+            content: `## TOOL-ERGEBNISSE RUNDE ${toolRound + 1}\n\n${toolResultBlocks.join("\n\n---\n\n")}`,
           });
         }
 
