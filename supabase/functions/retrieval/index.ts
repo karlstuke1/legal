@@ -3,6 +3,7 @@ import { sanitizeFindokUrl } from "./findok-url.ts";
 import { sanitizeParlamentUrl } from "./parlament-url.ts";
 import { rerankResults } from "./rerank.ts";
 import { detectLandesrechtScope } from "./landesrecht.ts";
+import { filterAustrianPrivacyLawSources } from "./source-filter.ts";
 import {
   extractMessageContent,
   openRouterChatCompletion,
@@ -1214,8 +1215,14 @@ async function searchRIS(query: string, reformulated?: ReformulatedQuery | null)
       }
     }
 
-    if (results.length === 0) return getRISFallback(query);
-    return results;
+    const filteredResults = filterAustrianPrivacyLawSources(query, reformulated, results);
+    const filteredCount = results.length - filteredResults.length;
+    if (filteredCount > 0) {
+      console.warn(`[RIS] Filtered ${filteredCount} non-privacy-law result(s) from Datenschutz query.`);
+    }
+
+    if (filteredResults.length === 0) return getRISFallback(query);
+    return filteredResults;
   } catch (e) {
     console.error("RIS error:", e);
     return getRISFallback(query);

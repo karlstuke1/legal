@@ -40,6 +40,7 @@ Environment: https://legal-gamma-three.vercel.app
 - Confirmed from Flo's mobile voice note that interrupted streams could lose the assistant answer on reload because messages were only persisted after final `onDone`. Added throttled assistant draft persistence during streaming and replace the draft with the verified final answer after completion.
 - Added an immediate fallback chat title for first-message chats so interrupted first answers no longer leave the sidebar stuck at `Neuer Chat`; successful completions still refine the title through the title generator.
 - Render bare `Quelle 2` / `Quellen 1 und 3` mentions as source footnotes, covering the mobile observation where a second source marker appeared unlinked.
+- Live retest with the built-in Datenschutz prompt exposed RIS false positives for `DSt` / Disziplinarstatut and unrelated Rechtssatz intros. Added a RIS Datenschutz source filter so DSG/DSGVO/Datenschutz queries only keep RIS evidence whose own title/snippet/ref contains privacy-law signals; otherwise the answer falls back to the explicit no-verified-sources path instead of citing unrelated RIS documents.
 
 ## Improvement Candidates
 
@@ -55,6 +56,7 @@ Environment: https://legal-gamma-three.vercel.app
 - The Browser automation environment could not type the `§` character directly because virtual clipboard support was unavailable. The UI was tested with `Paragraf 75 StGB`; the backend itself was separately tested with the exact `§ 75 StGB` query.
 - File upload, real document embedding, compare execution, settings mutation, invite/referral flows, exports, and billing actions were not exhaustively exercised in this pass because they would require uploading/submitting data or changing account state. Their pages/forms loaded where route-smoked.
 - Mobile onboarding still needs a focused UX pass. The product tour and confidentiality/AI disclosure consent can be awkward to dismiss on a phone, especially if they appear close together.
+- Datenschutz/DSGVO coverage needs a proper provider expansion pass. The new filter prevents wrong RIS sources, but the app may now answer some Datenschutz prompts with no verified source instead of retrieving EUR-Lex/CURIA/DSB-specific evidence.
 
 ## Verification Run
 
