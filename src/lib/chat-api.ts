@@ -75,6 +75,27 @@ export async function insertMessage(
   return data as unknown as ChatMessage;
 }
 
+export async function updateMessage(
+  messageId: string,
+  text: string,
+  sources?: ChatMessage["content"]["sources"],
+): Promise<ChatMessage | null> {
+  const content: ChatMessage["content"] = sources && sources.length > 0
+    ? { text, sources }
+    : { text };
+  const { data, error } = await supabase
+    .from("messages")
+    .update({ content })
+    .eq("id", messageId)
+    .select()
+    .single();
+  if (error) { console.error("updateMessage error:", error); return null; }
+  if ((data as any)?.chat_id) {
+    await supabase.from("chats").update({ updated_at: new Date().toISOString() }).eq("id", (data as any).chat_id);
+  }
+  return data as unknown as ChatMessage;
+}
+
 export async function updateChatTitle(chatId: string, title: string) {
   await supabase.from("chats").update({ title }).eq("id", chatId);
   // Dispatch custom event so sidebar can refresh

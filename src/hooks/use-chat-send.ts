@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase-safe";
 import {
   createChat,
   insertMessage,
+  updateMessage,
   updateChatTitle,
   updateChatFilters,
 } from "@/lib/chat-api";
@@ -32,6 +33,17 @@ function stripTrailingLegalDisclaimer(text: string): string {
 /** Sliding window: keep last N message pairs + system context summary */
 const MAX_CONTEXT_MESSAGES = 20; // ~10 user+assistant pairs
 const MIN_THINKING_PHASE_MS = 1400;
+const STREAM_DRAFT_MIN_CHARS = 80;
+const STREAM_DRAFT_SAVE_INTERVAL_MS = 1500;
+const STREAM_DRAFT_SAVE_DELTA_CHARS = 240;
+const STREAM_DRAFT_SUFFIX = "\n\n*Antwort wird noch erstellt. Falls die Seite neu geladen wurde, kann dieser Stand unvollständig sein.*";
+const STREAM_INTERRUPTED_SUFFIX = "\n\n*Antwort wurde unterbrochen. Bitte ggf. neu generieren.*";
+
+function fallbackChatTitle(query: string): string {
+  const normalized = query.replace(/\s+/g, " ").trim();
+  if (!normalized) return "Neuer Chat";
+  return normalized.length > 50 ? normalized.slice(0, 50) + "…" : normalized;
+}
 
 /**
  * Build enriched search query for follow-up questions by extracting
@@ -738,6 +750,11 @@ export function useChatSend(
         setMessages(prev => [...prev, userMsg]);
       }
 
+      const isFirstMessageInChat = messages.length === 0;
+      if (isFirstMessageInChat && text.trim().length > 5 && !privacyNoStore) {
+        void updateChatTitle(currentChatId, fallbackChatTitle(text));
+      }
+
       const isFollowUp = messages.length > 0;
       const detectedDraft = isDraftIntent(text);
       const effectiveFilters = detectedDraft && filters.mode !== "draft"
@@ -912,6 +929,62 @@ export function useChatSend(
       // BEFORE any text content, so it's populated by the time the
       // stream finishes and onDone runs the scrub/render pipeline.
       let serverSourceMap: SourceMapEntry[] = [];
+      let draftAssistantMsg: ChatMessage | null = null;
+      let draftSaveChain: Promise<void> = Promise.resolve();
+      let lastDraftSaveAt = 0;
+      let lastDraftSavedLength = 0;
+
+      const buildDraftText = (raw: string, interrupted = false) => {
+        const base = stripTrailingLegalDisclaimer(raw).trim();
+        if (!base) return "";
+        return base + (interrupted ? STREAM_INTERRUPTED_SUFFIX : STREAM_DRAFT_SUFFIX);
+      };
+
+      const persistAssistantDraft = (opts: { force?: boolean; interrupted?: boolean } = {}) => {
+        if (privacyNoStore || !currentChatId) return draftSaveChain;
+        const base = stripTrailingLegalDisclaimer(fullResponse).trim();
+        if (base.length < STREAM_DRAFT_MIN_CHARS) return draftSaveChain;
+
+        const now = Date.now();
+        const changedEnough = Math.abs(base.length - lastDraftSavedLength) >= STREAM_DRAFT_SAVE_DELTA_CHARS;
+        if (!opts.force && now - lastDraftSaveAt < STREAM_DRAFT_SAVE_INTERVAL_MS && !changedEnough) {
+          return draftSaveChain;
+        }
+
+        lastDraftSaveAt = now;
+        lastDraftSavedLength = base.length;
+        const draftText = buildDraftText(base, !!opts.interrupted);
+        draftSaveChain = draftSaveChain
+          .then(async () => {
+            if (!draftAssistantMsg) {
+              draftAssistantMsg = await insertMessage(currentChatId!, "assistant", draftText);
+              return;
+            }
+            const updated = await updateMessage(draftAssistantMsg.id, draftText);
+            if (updated) draftAssistantMsg = updated;
+          })
+          .catch((e) => {
+            console.warn("[stream-draft] Failed to persist assistant draft:", e);
+          });
+
+        return draftSaveChain;
+      };
+
+      const persistInterruptedAssistantDraft = async (appendToMessages: boolean) => {
+        if (privacyNoStore) return false;
+        const base = stripTrailingLegalDisclaimer(fullResponse).trim();
+        if (base.length < STREAM_DRAFT_MIN_CHARS) return false;
+
+        await persistAssistantDraft({ force: true, interrupted: true });
+        await draftSaveChain;
+        if (!draftAssistantMsg) return false;
+
+        if (appendToMessages) {
+          const savedDraft = draftAssistantMsg;
+          setMessages(prev => prev.some(m => m.id === savedDraft.id) ? prev : [...prev, savedDraft]);
+        }
+        return true;
+      };
 
       try {
         await new Promise<void>((resolve, reject) => {
@@ -990,6 +1063,7 @@ export function useChatSend(
             },
             onDelta: (chunk) => {
               fullResponse += chunk;
+              void persistAssistantDraft();
 
               if (!responseVisible) {
                 const elapsed = Date.now() - thinkingStartedAt;
@@ -1109,6 +1183,7 @@ export function useChatSend(
                 ...(toolFoundSources.length > 0 ? [{ provider: "TOOL", results: toolFoundSources, latencyMs: 0 }] : []),
                 ...sourceMapToGroups(serverSourceMap),
               ]);
+              await draftSaveChain;
               let assistantMsg: ChatMessage | null = null;
               if (privacyNoStore) {
                 assistantMsg = {
@@ -1121,6 +1196,14 @@ export function useChatSend(
                   created_at: new Date().toISOString(),
                 } as ChatMessage;
                 setMessages(prev => [...prev, assistantMsg!]);
+              } else if (draftAssistantMsg) {
+                assistantMsg = await updateMessage(draftAssistantMsg.id, responseToPersist, allSourceGroups);
+                if (assistantMsg) {
+                  setMessages(prev => prev.some(m => m.id === assistantMsg!.id) ? prev : [...prev, assistantMsg!]);
+                } else {
+                  assistantMsg = await insertMessage(currentChatId!, "assistant", responseToPersist, allSourceGroups);
+                  if (assistantMsg) setMessages(prev => [...prev, assistantMsg!]);
+                }
               } else {
                 const optimisticId = `__assistant_pending__${Date.now()}`;
                 const optimisticMsg = {
@@ -1144,7 +1227,7 @@ export function useChatSend(
               setStreamingContent("");
 
               // LLM-based chat title generation
-              if (messages.length === 0 && text.length > 5) {
+              if (isFirstMessageInChat && text.length > 5) {
                 generateChatTitle(text, responseToPersist, currentChatId!);
               }
               if (justCreatedRef.current === currentChatId) {
@@ -1229,6 +1312,18 @@ export function useChatSend(
                 justCreatedRef.current = null;
               }
 
+              const savedInterruptedDraft = await persistInterruptedAssistantDraft(true);
+              if (savedInterruptedDraft) {
+                setStreamingContent("");
+                toast({
+                  title: "Antwort unterbrochen",
+                  description: "Der bisherige Stand wurde gespeichert.",
+                  variant: "destructive",
+                });
+                resolve();
+                return;
+              }
+
               // Detect quota exceeded errors
               if (/Limit erreicht/i.test(error) || /upgraden Sie/i.test(error)) {
                 const type = /Upload/i.test(error) ? "uploads" as const
@@ -1260,12 +1355,23 @@ export function useChatSend(
         });
       } catch (e: any) {
         clearRevealTimer();
-        if (e.name !== "AbortError") {
+        if (e.name === "AbortError") {
+          await persistInterruptedAssistantDraft(false);
+        } else {
+          const savedInterruptedDraft = await persistInterruptedAssistantDraft(true);
           thinkingCtrl.completeAll();
           setIsThinking(false);
           setIsStreaming(false);
           setStreamingContent("");
-          toast({ title: "Fehler", description: "Verbindung unterbrochen.", variant: "destructive" });
+          if (savedInterruptedDraft) {
+            toast({
+              title: "Antwort unterbrochen",
+              description: "Der bisherige Stand wurde gespeichert.",
+              variant: "destructive",
+            });
+          } else {
+            toast({ title: "Fehler", description: "Verbindung unterbrochen.", variant: "destructive" });
+          }
         }
       }
     },

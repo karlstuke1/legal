@@ -20,6 +20,7 @@
  *   4. Token inside quoted blocks: scan everywhere, no carve-outs for `"..."`
  *   5. Bare integer mentions like `[7]` standalone — we DO NOT match these
  *      (too ambiguous, could be a footnote number from the LLM itself)
+ *   6. Bare source mentions: `Quelle 2` / `Quellen 2 und 4` → footnote links
  *
  * Pure function, no side effects. Easy to unit-test.
  */
@@ -58,6 +59,7 @@ function toSuperscript(n: number): string {
 // outer brackets with at least one "Quelle"/"Quellen" keyword inside
 // and let parseIndices extract every integer from the captured group.
 const TOKEN_RE = /\[Quellen?\s+([^\]]+?)\]/g;
+const BARE_TOKEN_RE = /(^|[\s(])Quellen?\s+(\d+(?:\s*(?:,|und)\s*\d+)*)\b/gi;
 
 // After replacement, any parenthetical immediately following a footnote
 // link that contains a case-citation shape (OGH/VwGH/VfGH Geschäftszahl,
@@ -96,7 +98,7 @@ export function renderSourceTokens(
   let replaced = 0;
   let unmapped = 0;
 
-  let rendered = text.replace(TOKEN_RE, (_full, indicesGroup: string) => {
+  const renderIndices = (indicesGroup: string) => {
     const indices = parseIndices(indicesGroup);
     if (!indices.length) return "";
     const pieces: string[] = [];
@@ -114,6 +116,13 @@ export function renderSourceTokens(
     }
     if (!pieces.length) return ""; // all out-of-bounds → drop entire token
     return pieces.join(" ");
+  };
+
+  let rendered = text.replace(TOKEN_RE, (_full, indicesGroup: string) => renderIndices(indicesGroup));
+
+  rendered = rendered.replace(BARE_TOKEN_RE, (_full, prefix: string, indicesGroup: string) => {
+    const renderedIndices = renderIndices(indicesGroup);
+    return renderedIndices ? `${prefix}${renderedIndices}` : prefix;
   });
 
   // After token replacement, strip parentheticals that contain a case-ref

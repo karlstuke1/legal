@@ -37,6 +37,9 @@ Environment: https://legal-gamma-three.vercel.app
 - Added a deterministic frontend fallback that inserts a `[Quelle N]` token when the model returns an answer without any source token even though the server emitted verified sources. This keeps persisted answers linked to verified evidence.
 - Added a prompt rule requiring directly responsive `Rechtssatz:` / `Leitsatz:` source text to be surfaced at the start of the answer with `[Quelle N]`, while still forbidding RS numbers, GZ, ECLI, and URLs in the answer body.
 - Added a deterministic Rechtssatz anchoring pass that picks the source sentence with strong overlap against the generated answer. This prevents unrelated Rechtssatz results from being surfaced just because they appear earlier in the source map.
+- Confirmed from Flo's mobile voice note that interrupted streams could lose the assistant answer on reload because messages were only persisted after final `onDone`. Added throttled assistant draft persistence during streaming and replace the draft with the verified final answer after completion.
+- Added an immediate fallback chat title for first-message chats so interrupted first answers no longer leave the sidebar stuck at `Neuer Chat`; successful completions still refine the title through the title generator.
+- Render bare `Quelle 2` / `Quellen 1 und 3` mentions as source footnotes, covering the mobile observation where a second source marker appeared unlinked.
 
 ## Improvement Candidates
 
@@ -51,6 +54,7 @@ Environment: https://legal-gamma-three.vercel.app
 - Browser viewport override did not take effect in this session: after setting `390x844` and reloading, `window.innerWidth` stayed `1440`. Mobile layout remains unverified from the in-app browser pass.
 - The Browser automation environment could not type the `§` character directly because virtual clipboard support was unavailable. The UI was tested with `Paragraf 75 StGB`; the backend itself was separately tested with the exact `§ 75 StGB` query.
 - File upload, real document embedding, compare execution, settings mutation, invite/referral flows, exports, and billing actions were not exhaustively exercised in this pass because they would require uploading/submitting data or changing account state. Their pages/forms loaded where route-smoked.
+- Mobile onboarding still needs a focused UX pass. The product tour and confidentiality/AI disclosure consent can be awkward to dismiss on a phone, especially if they appear close together.
 
 ## Verification Run
 

@@ -145,6 +145,23 @@ describe("renderSourceTokens — Disobedience pattern 4: tokens inside quoted bl
   });
 });
 
+describe("renderSourceTokens — Disobedience pattern 6: bare source mentions", () => {
+  it("replaces a bare `Quelle 2` mention with a footnote link", () => {
+    const r = renderSourceTokens("Die Aussage folgt aus Quelle 2.", SOURCES);
+    expect(r.text).toContain("[²](https://example.test/source-2)");
+    expect(r.text).not.toContain("Quelle 2");
+    expect(r.replaced).toBe(1);
+  });
+
+  it("replaces bare plural source mentions", () => {
+    const r = renderSourceTokens("Das ergibt sich aus Quellen 1 und 3.", SOURCES);
+    expect(r.text).toContain("[¹](https://example.test/source-1)");
+    expect(r.text).toContain("[³](https://example.test/source-3)");
+    expect(r.text).not.toContain("Quellen 1 und 3");
+    expect(r.replaced).toBe(2);
+  });
+});
+
 describe("renderSourceTokens — URL safety", () => {
   it("escapes closing parens in URLs so markdown link doesn't break", () => {
     const sources: SourceMapEntry[] = [{
