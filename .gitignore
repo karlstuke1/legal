@@ -30,3 +30,4 @@ dist-ssr
 tmp-ui-smoke/
 tmp-iterate-runs/
 supabase/.temp/
+.vercel
