@@ -91,7 +91,7 @@ export async function pseudonymizeText(text: string): Promise<PseudonymizationRe
     ],
     responseFormat: PSEUDONYMIZATION_SCHEMA,
     maxTokens: 5000,
-    reasoningEffort: "high",
+    reasoningEffort: "low",
     requireParameters: true,
     signal: AbortSignal.timeout(8000),
   });

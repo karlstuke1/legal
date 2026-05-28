@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
       ],
       maxTokens: 1024,
       temperature: 0.1,
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       requireParameters: true,
     });
 

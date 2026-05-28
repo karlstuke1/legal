@@ -59,7 +59,7 @@ async function extractText(adminClient: any, storagePath: string, fileName: stri
         ]
       }],
     maxTokens: 16000,
-    reasoningEffort: "high",
+    reasoningEffort: "low",
     requireParameters: true,
   });
 
@@ -141,7 +141,7 @@ Maximal 15 Klauseln. Sortiere nach Risiko (hoch zuerst).`
         ],
       responseFormat: CONTRACT_COMPARE_SCHEMA,
       maxTokens: 8000,
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       requireParameters: true,
     });
 

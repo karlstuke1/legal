@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
       ],
       temperature: 0.1,
       maxTokens: 30,
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       requireParameters: true,
       signal: AbortSignal.timeout(5000),
     });

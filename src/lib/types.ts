@@ -7,7 +7,27 @@ export interface ChatMessage {
   id: string;
   chat_id: string;
   role: "user" | "assistant" | "system";
-  content: { text: string; file_ids?: string[] };
+  content: {
+    text: string;
+    file_ids?: string[];
+    sources?: Array<{
+      provider: string;
+      results: Array<{
+        doc_ref?: string;
+        title?: string;
+        date?: string;
+        url?: string;
+        score?: number;
+        highlights?: string[];
+        provider?: string;
+        pinpoint?: string;
+        snippet?: string;
+        relevance?: number;
+        evidence_status?: "verified_document" | "search_utility" | "fallback";
+      }>;
+      latencyMs?: number;
+    }>;
+  };
   created_at: string;
 }
 

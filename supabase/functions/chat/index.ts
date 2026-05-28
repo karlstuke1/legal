@@ -242,6 +242,10 @@ function normalizeAustrianLegalQuery(value: string): string {
     .replace(/\bösterreichische\s+StPO\b/gi, "StPO");
 }
 
+function hasExplicitNormReference(value: string): boolean {
+  return /(?:§|paragraf|paragraph)\s*\d+[a-z]?\b/i.test(value || "");
+}
+
 function formatToolSourcesForModel(results: any[], limit: number): string {
   return results.slice(0, limit).map((r: any, i: number) => {
     const provider = r.provider || r.source_provider || "";
@@ -275,13 +279,14 @@ async function executeToolCall(
       case "search_law": {
         const effectiveJurisdiction = resolveEffectiveJurisdiction(args.jurisdiction, activeJurisdictions);
         const normalizedQuery = normalizeAustrianLegalQuery(args.query || "");
+        const exactNormLookup = hasExplicitNormReference(normalizedQuery);
         // Optimization #4: Pass query to PARLAMENT filter
         const providers = resolveProvidersForJurisdiction(effectiveJurisdiction, activeJurisdictions, normalizedQuery);
         const resp = await fetch(`${supabaseUrl}/functions/v1/retrieval`, {
           method: "POST",
           headers: { Authorization: functionAuthHeader, apikey: anonKey, "Content-Type": "application/json" },
-          body: JSON.stringify({ query: normalizedQuery, providers, jurisdiction: [effectiveJurisdiction] }),
-          signal: AbortSignal.timeout(15000),
+          body: JSON.stringify({ query: normalizedQuery, providers, jurisdiction: [effectiveJurisdiction], exactNormOnly: exactNormLookup }),
+          signal: AbortSignal.timeout(exactNormLookup ? 30000 : 15000),
         });
         if (!resp.ok) { await resp.text(); return { result: "Recherche fehlgeschlagen." }; }
         const data = await resp.json();
@@ -295,7 +300,7 @@ async function executeToolCall(
         const normJ = resolveEffectiveJurisdiction(args.jurisdiction, activeJurisdictions);
         const normalizedNorm = normalizeAustrianLegalQuery(args.norm || "");
         let results: any[] = [];
-        const explicitNormLookup = /§\s*\d+[a-z]?\b/i.test(normalizedNorm);
+        const explicitNormLookup = hasExplicitNormReference(normalizedNorm);
         if (!explicitNormLookup) {
           const resp = await fetch(`${supabaseUrl}/functions/v1/semantic-search`, {
             method: "POST",
@@ -626,7 +631,7 @@ Deno.serve(async (req) => {
     const skipToolPhase = isDraftMode || hasRichSourceContext || shouldSkipRetrieval(lastUserMsg, !!document_context, mode);
     
     // High-stakes chat output and tool routing use OpenRouter GPT-5.5 with
-    // high reasoning. Cheap model routing is intentionally disabled here:
+    // low reasoning for practical production latency. Cheap model routing is intentionally disabled here:
     // source correctness is more important than marginal latency/cost.
     const finalModel = highQualityModel;
     const toolModel = highQualityModel;
@@ -634,6 +639,25 @@ Deno.serve(async (req) => {
     const structuredSources = buildNumberedSourcesFromItems(source_items as SourceItem[] | undefined);
     const legacySources = structuredSources.length > 0 ? [] : parseLegacySourceContext(sourceContext || "");
     let allNumberedSources: NumberedSource[] = dedupeNumberedSources([...structuredSources, ...legacySources]);
+
+    if (!isExam && hasExplicitNormReference(lastUserMsg)) {
+      const { sources: exactNormSources } = await executeToolCall(
+        "lookup_norm",
+        { norm: lastUserMsg, jurisdiction: "AT" },
+        supabaseUrl,
+        authHeader,
+        anonKey,
+        workspace_id,
+        jurisdiction,
+      );
+      if (exactNormSources && exactNormSources.length > 0) {
+        allNumberedSources = dedupeNumberedSources([
+          ...allNumberedSources,
+          ...appendToolFoundSources(exactNormSources, allNumberedSources.length + 1),
+        ]);
+        console.log(`[chat] Seeded ${exactNormSources.length} exact norm source(s) from user message`);
+      }
+    }
 
     const systemPrompt = buildSystemPrompt(mode, jurisdiction, sources, sourceContext, legal_area, vault_context, userMemory, document_context, skipToolPhase, allNumberedSources);
 
@@ -650,7 +674,7 @@ Deno.serve(async (req) => {
     const toolEvents: any[] = [];
     let toolRound = 0;
     const MAX_TOOL_ROUNDS = 1;
-    const MAX_TOOL_CALLS_PER_ROUND = 3;
+    const MAX_TOOL_CALLS_PER_ROUND = 2;
 
     if (!isExam && !skipToolPhase) {
       while (toolRound < MAX_TOOL_ROUNDS) {
@@ -666,7 +690,7 @@ Deno.serve(async (req) => {
             tools: buildAgentTools(jurisdiction),
             toolChoice: effectiveToolChoice,
             maxTokens: 2048,
-            reasoningEffort: "high",
+            reasoningEffort: "low",
             requireParameters: true,
           });
         } catch (e) {
@@ -778,7 +802,7 @@ Deno.serve(async (req) => {
       } else {
         allMessages.push({
           role: "system",
-          content: "## KEINE QUELLEN GEFUNDEN\n\nDie Tool-Suche hat keine Ergebnisse geliefert. Du darfst KEINE Aktenzeichen, RS-Nummern, ECLI-Identifier oder konkrete Geschäftszahlen schreiben — auch nicht aus deinem Trainingswissen. Verwende stattdessen \"vgl. ständige Rechtsprechung\" oder lass die Quellenangabe weg.",
+          content: "## KEINE QUELLEN GEFUNDEN\n\nDie Tool-Suche hat keine Ergebnisse geliefert. Du darfst KEINE [Quelle N]-Tokens, Quellenlisten, Fußnoten, Aktenzeichen, RS-Nummern, ECLI-Identifier oder konkrete Geschäftszahlen schreiben — auch nicht aus deinem Trainingswissen. Verwende stattdessen \"vgl. ständige Rechtsprechung\" oder lass die Quellenangabe weg.",
         });
         console.log("[chat] Empty source list — emitted no-sources prohibition");
       }
@@ -792,8 +816,8 @@ Deno.serve(async (req) => {
       messages: allMessages,
       stream: true,
       streamOptions: { include_usage: true },
-      maxTokens: 16384,
-      reasoningEffort: "high",
+      maxTokens: 2048,
+      reasoningEffort: "low",
       requireParameters: true,
     });
 
@@ -1063,20 +1087,16 @@ Alle Anfragen werden für AT beantwortet.
 **Typ C — Rückfrage nötig** (vager Sachverhalt):
 → 2-4 nummerierte Fragen mit Optionen, bevor du antwortest.
 
-## Pflicht-Antwort-Struktur — LEHRBUCH-NIVEAU
+## Rechtliches Prüfraster — NUR soweit relevant
 
-Bei jeder Wissens-/Fallfrage MUSS die Antwort **alle** dieser Bausteine in dieser Reihenfolge enthalten — fehlt einer, gilt die Antwort als unvollständig:
+Passe die Tiefe an die Nutzerfrage an. Eine einfache Norm-/Definitionsfrage braucht keine vollständige Lehrbuchprüfung.
 
-1. **Anspruchsgrundlage / Tatbestand** — eine spezifische Norm mit Paragraph (z.B. "§ 1295 ABGB" oder "§ 33 Abs 1 FinStrG"). Bei mehreren Anspruchsgrundlagen alle nennen + warum diese und nicht andere.
-2. **Tatbestandsmerkmale (objektiv + subjektiv)** — als Aufzählung mit präziser Definition jedes Merkmals. Bei Vorsatzdelikten **alle drei Vorsatzformen** (Absicht/Wissentlichkeit/Eventualvorsatz) erwähnen und das praxisrelevante hervorheben.
-3. **Negativabgrenzung** ("Was genügt NICHT") — mindestens eine konkrete Konstellation, die den Tatbestand NICHT erfüllt, mit Begründung warum nicht.
-4. **Abgrenzung zu Nachbar-Tatbeständen** — mindestens ein verwandter Tatbestand mit klarem Unterscheidungskriterium (z.B. § 33 FinStrG vs. § 39 FinStrG vs. § 34 FinStrG).
-5. **Rechtsfolgen** — Strafrahmen / Schadenersatzhöhe / Sanktionen mit konkreten Zahlen (NUR aus Tools — sonst weglassen) plus Verfahrensweg.
-6. **Beweislast** — wer trägt sie, was muss bewiesen werden.
-7. **Fristen / Verjährung** — wenn relevant, mit konkreter Dauer (NUR aus Tools).
-8. **Praxis-Hinweis** — typische Praxiskonstellation, häufigster Fehler, strategischer Tipp.
-
-Wenn ein Baustein im konkreten Fall nicht passt (z.B. keine Verjährung bei einer reinen Definitionsfrage), explizit überspringen — NICHT mit Platzhalter füllen.
+Prüfe nur die unmittelbar relevanten Punkte:
+1. **Norm / Tatbestand** — spezifische Norm mit Paragraph, falls aus Quellen/Tools verfügbar.
+2. **Tatbestandsmerkmale** — kurz und präzise; bei Vorsatzdelikten nur die praktisch relevante Vorsatzform vertiefen.
+3. **Abgrenzung / Negativbeispiel** — nur wenn die Frage danach verlangt oder eine typische Verwechslung droht.
+4. **Rechtsfolgen, Fristen, Beträge** — nur wenn durch Quellen/Tools belegt; sonst weglassen oder als nicht verifiziert markieren.
+5. **Praxis-Hinweis** — maximal 1-2 Sätze.
 
 ${buildCitationRuleBlock()}
 
@@ -1085,14 +1105,14 @@ ${buildCitationRuleBlock()}
 - **Tiefe nach Bedarf**: Detaillierte Abschnitte (Tatbestandsmerkmale, Abgrenzungen) NUR wenn sie die Frage tatsächlich betreffen. Nicht jede Frage braucht jeden Aspekt.
 - **Kein Lehrbuch**: Schreibe NICHT alles, was du über ein Thema weißt. Fokus auf das, was der Nutzer wissen MUSS.
 - **Absätze max 3-4 Sätze**: Wenn ein Absatz länger wird, teile ihn auf oder kürze.
-- **Zielumfang**: Einfache Fragen 200-400 Wörter. Komplexe Fragen 500-800 Wörter. Über 1000 Wörter NUR bei sehr komplexen Sachverhalten mit mehreren Rechtsgebieten.
+- **Zielumfang**: Einfache Fragen 180-320 Wörter. Normfragen 250-450 Wörter. Komplexe Sachverhalte 450-700 Wörter. Über 700 Wörter NUR wenn der Nutzer ausdrücklich eine ausführliche Analyse verlangt.
 
-## Praxisbezug — PFLICHT BEI JEDER ANTWORT
-Bei JEDER Antwort zu einem Rechtsthema:
-1. **Häufigster Praxisfall**: Nenne ein konkretes, typisches Szenario aus der Praxis (z.B. "In der Praxis häufig: Ein Bauarbeiter stürzt von einer Leiter — hier liegt typischerweise...")
-2. **Abgrenzungsprobleme**: Zeige die häufigsten Verwechslungsgefahren in der Praxis (z.B. "Die Abgrenzung zu § 76 StGB (Totschlag) ist in der Praxis die häufigste Frage: ...")
-3. **Rechtsfolgen-Konsequenzen**: Was passiert KONKRET? (Strafmaß, Schadenersatzhöhe, Fristen, nächste Schritte)
-4. **Cross-Domain-Hinweise** (wenn relevant): Verwandte Rechtsgebiete kurz ansprechen (z.B. bei Strafrecht → zivilrechtliche Folgen wie Schadenersatz, Erbunwürdigkeit; bei Vertragsrecht → steuerliche Aspekte). NUR 1-2 Sätze, NICHT ausführlich.
+## Praxisbezug
+Bei Rechtsthemen einen kurzen Praxisbezug geben, wenn er die Antwort verbessert:
+1. typischer Praxisfall,
+2. wichtigste Abgrenzung,
+3. konkrete Konsequenz.
+Keine Cross-Domain-Exkurse, außer der Nutzer fragt danach.
 
 ## Antwort-Struktur — NACH RECHTLICHEN KONZEPTEN GLIEDERN
 Gliedere Antworten NICHT nach einzelnen Artikeln/Paragraphen, sondern nach RECHTLICHEN KONZEPTEN und INSTITUTIONEN:
@@ -1101,9 +1121,9 @@ Gliedere Antworten NICHT nach einzelnen Artikeln/Paragraphen, sondern nach RECHT
 - NICHT: Artikel für Artikel durchgehen (Art. 6, Art. 7, Art. 12, Art. 13...) — das ist zu abstrakt
 
 ## Vollständigkeitspflicht
-Bei JEDER juristischen Frage ALLE relevanten Aspekte prüfen: Anspruchsgrundlagen/Tatbestandsmerkmale, Rechtsfolgen, Fristen/Verjährung (NUR aus Tools), Beweislast, Verfahrensschritte, Abgrenzungen.
+Bei JEDER juristischen Frage ALLE direkt relevanten Aspekte prüfen: Anspruchsgrundlagen/Tatbestandsmerkmale, Rechtsfolgen, Fristen/Verjährung (NUR aus Tools), Beweislast, Verfahrensschritte, Abgrenzungen.
 **LÜCKEN BENENNEN**: Wenn die Tool-Ergebnisse einen Aspekt nicht abdecken → explizit sagen.
-Spezifische vor allgemeiner Norm. IMMER Zusammenfassung am Ende (> 200 Wörter).
+Spezifische vor allgemeiner Norm. Kurze Zusammenfassung am Ende mit 3 Bulletpoints.
 
 ## NATIONALE UMSETZUNGSGESETZE — PFLICHT
 Bei EU-Verordnungen/Richtlinien (DSGVO, AI Act, etc.) IMMER die ÖSTERREICHISCHEN Umsetzungsgesetze prüfen:
@@ -1133,6 +1153,7 @@ Bei mehrdeutigen Normen (z.B. "StGB") verwende IMMER die österreichische Fassun
   } else {
     sourceInstructions = `\n\n## Keine externen Quellen verfügbar
 Die Tool-Suche hat keine Ergebnisse geliefert. Du darfst allgemein bekannte österreichische Normen nennen (z.B. § 1295 ABGB, Art. 6 DSGVO), aber:
+- ERFINDE KEINE [Quelle N]-Tokens, Quellenlisten oder Fußnoten
 - ERFINDE KEINE Aktenzeichen, GZ, RS-Nummern oder Fundstellen — auch nicht als Plain Text
 - ERFINDE KEINE konkreten Fristen, Beträge oder Prozentsätze
 - Verwende stattdessen "vgl. ständige Rechtsprechung" oder lass die Quellenangabe weg

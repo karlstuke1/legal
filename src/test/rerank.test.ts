@@ -137,12 +137,12 @@ describe("rerankResults", () => {
     expect(out[1].relevance).toBeCloseTo(0.3);
   });
 
-  it("uses OpenRouter GPT-5.5 with high reasoning and strict schema", async () => {
+  it("uses OpenRouter GPT-5.5 with low reasoning and strict schema", async () => {
     const fetchSpy = mockFetch(scoresBody([5]));
     await rerankResults("q", [{ title: "A" }], "key");
     const body = JSON.parse((fetchSpy.mock.calls[0][1]!.body as string));
     expect(body.model).toBe("openai/gpt-5.5");
-    expect(body.reasoning).toEqual({ effort: "high", exclude: true });
+    expect(body.reasoning).toEqual({ effort: "low", exclude: true });
     expect(body.response_format?.type).toBe("json_schema");
     expect(body.provider?.require_parameters).toBe(true);
   });

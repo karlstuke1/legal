@@ -80,7 +80,7 @@ export function buildOpenRouterChatBody(options: OpenRouterChatOptions): Record<
     model: options.model || getHighQualityModel(),
     messages: options.messages,
     reasoning: {
-      effort: options.reasoningEffort || "high",
+      effort: options.reasoningEffort || "low",
       exclude: options.includeReasoning !== true,
     },
   };

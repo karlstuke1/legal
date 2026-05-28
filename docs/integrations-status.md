@@ -31,7 +31,9 @@
 ### Anti-Halluzination
 - **Harvey-style `[Quelle N]`-Architektur** (`chat/numbered-sources.ts`): Der LLM-Prompt sieht keine RS-Nummern, GZ, ECLI, CELEX oder URLs mehr. Das Backend emittiert `source_map` inklusive `doc_ref` nur für den Scrubber.
 - **`citation-allowlist.ts` ist Legacy**: Tests bleiben als Regressionen, aber der Live-Prompt verwendet die nummerierte Quellenarchitektur.
-- **OpenRouter für alle Modell-Calls**: Chat-Finalantworten, Tool-Routing, Retrieval-Planung/Reranking, Verify, Dokumentanalyse, Risk Reports, Vertragsvergleich, Pseudonymisierung, Titel, Kontext-Zusammenfassungen und Embeddings laufen über OpenRouter. Nicht-Embedding-Aufgaben verwenden `openai/gpt-5.5` mit high reasoning; Embeddings verwenden `openai/text-embedding-3-small`.
+- **OpenRouter für alle Modell-Calls**: Chat-Finalantworten, Tool-Routing, Retrieval-Planung/Reranking, Verify, Dokumentanalyse, Risk Reports, Vertragsvergleich, Pseudonymisierung, Titel, Kontext-Zusammenfassungen und Embeddings laufen über OpenRouter. Nicht-Embedding-Aufgaben verwenden `openai/gpt-5.5` mit low reasoning; Embeddings verwenden `openai/text-embedding-3-small`.
+- **Deterministische Exact-Norm-Seeding-Logik**: Explizite `§`-/`Paragraf`-Fragen holen vor der LLM-Toolwahl eine verifizierte RIS-Normquelle und setzen sie in die nummerierte Quellenliste.
+- **Persistierte Quellenmetadaten**: Assistant-Messages speichern ihre verwendeten Source-Groups im JSON-Content, damit Reloads/historische Chats die verifizierten Quellen für Inline-Links und Quellenpanel behalten.
 - **`verify-answer` Edge Function**: blockierender Pre-Persist-Faktencheck mit strict JSON schema und optionalem `repaired_text`.
 - **Citation-Engine** (`src/lib/citation-engine.ts`): regex-basierte Extraktion + Strict-Verification gegen Retrieval-Sources. `fabricatedSuspects` werden im Confidence-Score abgewertet.
 - **Truncation-Notice** (`chat/truncation-notice.ts`): Stream-Cutoffs werden mit konkreter Ursache (length / safety / connection / unknown) als Callout angezeigt statt mitten im Wort abzubrechen.

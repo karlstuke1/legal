@@ -139,7 +139,7 @@ Regeln:
           }
         ],
       maxTokens: 16000,
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       requireParameters: true,
     });
 

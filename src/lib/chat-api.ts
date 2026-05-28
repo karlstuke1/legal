@@ -55,10 +55,18 @@ export async function fetchMessages(chatId: string, limit = 100, before?: string
   return (data || []) as unknown as ChatMessage[];
 }
 
-export async function insertMessage(chatId: string, role: string, text: string): Promise<ChatMessage | null> {
+export async function insertMessage(
+  chatId: string,
+  role: string,
+  text: string,
+  sources?: ChatMessage["content"]["sources"],
+): Promise<ChatMessage | null> {
+  const content: ChatMessage["content"] = sources && sources.length > 0
+    ? { text, sources }
+    : { text };
   const { data, error } = await supabase
     .from("messages")
-    .insert({ chat_id: chatId, role, content: { text } })
+    .insert({ chat_id: chatId, role, content })
     .select()
     .single();
   if (error) { console.error("insertMessage error:", error); return null; }

@@ -7,14 +7,14 @@ import {
 } from "../../supabase/functions/_shared/openrouter";
 
 describe("OpenRouter client helpers", () => {
-  it("defaults high-stakes calls to GPT-5.5 with high reasoning", () => {
+  it("defaults high-stakes calls to GPT-5.5 with low reasoning", () => {
     const body = buildOpenRouterChatBody({
       messages: [{ role: "user", content: "test" }],
-      reasoningEffort: "high",
+      reasoningEffort: "low",
     });
 
     expect(body.model).toBe("openai/gpt-5.5");
-    expect(body.reasoning).toEqual({ effort: "high", exclude: true });
+    expect(body.reasoning).toEqual({ effort: "low", exclude: true });
     expect(body.provider).toEqual({ require_parameters: true });
   });
 

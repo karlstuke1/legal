@@ -69,7 +69,7 @@ Prüfe, ob die harte Geschäftszahl von der Quelle gedeckt ist.`,
         },
       ],
       responseFormat,
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       requireParameters: true,
       maxTokens: 800,
     });

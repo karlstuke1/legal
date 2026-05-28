@@ -57,7 +57,7 @@ export default function ChatPage() {
     streamingContent, isStreaming,
     thinkingSteps, isThinking,
     sourceResults, setSourceResults,
-    sourceResultsMap,
+    sourceResultsMap, setSourceResultsMap,
     isSearchingSources,
     citationAnalysisMap,
     documentDetectionMap,
@@ -140,7 +140,22 @@ export default function ChatPage() {
     if (chatId) {
       setActiveChatId(chatId);
       const loadChat = (skipMessages: boolean) => {
-        if (!skipMessages) fetchMessages(chatId).then(setMessages);
+        if (!skipMessages) {
+          fetchMessages(chatId).then((loadedMessages) => {
+            setMessages(loadedMessages);
+            const restoredMap: Record<string, any[]> = {};
+            let latestSources: any[] = [];
+            for (const msg of loadedMessages) {
+              const sources = msg.content?.sources;
+              if (msg.role === "assistant" && Array.isArray(sources) && sources.length > 0) {
+                restoredMap[msg.id] = sources;
+                latestSources = sources;
+              }
+            }
+            setSourceResultsMap(restoredMap);
+            setSourceResults(latestSources);
+          });
+        }
         fetchChat(chatId).then(chat => {
           if (chat) {
             setFilters({

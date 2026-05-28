@@ -203,7 +203,7 @@ async function decomposeQuery(query: string, jurisdictions: string[]): Promise<s
       ],
       responseFormat: DECOMPOSE_SCHEMA,
       maxTokens: 1000,
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       requireParameters: true,
       signal: AbortSignal.timeout(4000),
     });
@@ -350,7 +350,7 @@ WICHTIG für case_law_searches: Erstelle 2-4 Suchstrings die EXPLIZIT auf Gerich
       ],
       responseFormat: REFORMULATE_SCHEMA,
       maxTokens: 2500,
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       requireParameters: true,
       signal: AbortSignal.timeout(5000),
     });
@@ -920,14 +920,19 @@ async function tryBuildVerifiedRisNormSource(
 }
 
 async function resolveExactRisNormSource(query: string): Promise<SearchResult | null> {
-  const paragraphNumber = query.match(/§{1,2}\s*(\d+[a-z]?)/i)?.[1];
+  const paragraphNumber = query.match(/(?:§{1,2}|paragraf|paragraph)\s*(\d+[a-z]?)/i)?.[1];
   if (!paragraphNumber) return null;
 
-  const lawKey = query
+  const normalizedQuery = query.toLowerCase();
+  const lawKey = normalizedQuery
     .toLowerCase()
     .split(/[^a-zäöüß0-9-]+/i)
     .map((part) => part.trim())
-    .find((part) => !!LAW_ABBREV_MAP[part]);
+    .find((part) => !!LAW_ABBREV_MAP[part])
+    || Object.entries(LAW_ABBREV_MAP).find(([, law]) => {
+      const title = law.titel.replace(/\*$/, "").toLowerCase();
+      return title.length > 5 && normalizedQuery.includes(title);
+    })?.[0];
 
   if (!lawKey) return null;
   return tryBuildVerifiedRisNormSource(lawKey, LAW_ABBREV_MAP[lawKey], paragraphNumber);

@@ -199,6 +199,44 @@ function isEvidentiaryRetrievalResult(r: RetrievalResult): boolean {
   return true;
 }
 
+type SourceGroup = { provider: string; results: RetrievalResult[]; latencyMs?: number };
+
+function sourceMapToGroups(sourceMap: SourceMapEntry[]): SourceGroup[] {
+  const grouped = new Map<string, RetrievalResult[]>();
+  for (const source of sourceMap || []) {
+    if (!source?.url) continue;
+    const provider = source.provider || "SOURCE_MAP";
+    const result: RetrievalResult = {
+      doc_ref: source.doc_ref || "",
+      title: source.title || source.doc_ref || "Quelle",
+      date: "",
+      url: source.url,
+      score: 1,
+      highlights: [],
+      provider,
+      snippet: "",
+      evidence_status: source.evidence_status || "verified_document",
+    };
+    grouped.set(provider, [...(grouped.get(provider) || []), result]);
+  }
+  return Array.from(grouped, ([provider, results]) => ({ provider, results, latencyMs: 0 }));
+}
+
+function dedupeSourceGroups(groups: SourceGroup[]): SourceGroup[] {
+  const seen = new Set<string>();
+  const out: SourceGroup[] = [];
+  for (const group of groups) {
+    const results = (group.results || []).filter((result) => {
+      const key = (result.url || result.doc_ref || result.title || "").toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    if (results.length > 0) out.push({ ...group, results });
+  }
+  return out;
+}
+
 /** Build concise source context string for the AI from retrieval results */
 function buildSourceContext(
   results: { provider: string; results: RetrievalResult[]; latencyMs?: number }[],
@@ -433,6 +471,7 @@ export interface UseChatSendResult {
   sourceResults: { provider: string; results: RetrievalResult[]; latencyMs?: number }[];
   setSourceResults: React.Dispatch<React.SetStateAction<{ provider: string; results: RetrievalResult[]; latencyMs?: number }[]>>;
   sourceResultsMap: Record<string, { provider: string; results: RetrievalResult[] }[]>;
+  setSourceResultsMap: React.Dispatch<React.SetStateAction<Record<string, { provider: string; results: RetrievalResult[] }[]>>>;
   isSearchingSources: boolean;
   citationAnalysisMap: Record<string, CitationAnalysis>;
   documentDetectionMap: Record<string, DocumentDetection>;
@@ -1039,15 +1078,13 @@ export function useChatSend(
                     console.warn(`[scrub-citations] Removed ${scrub.removedCount}, rewrote ${scrub.rewrittenCount} citation(s).`);
                   }
 
-                  // Render [Quelle N] tokens → footnote links. Runs even
-                  // when the scrubber didn't touch anything, because the
-                  // LLM may have emitted tokens directly (intended path).
-                  if (serverSourceMap.length > 0) {
-                    const rendered = renderSourceTokens(stagedText, serverSourceMap);
-                    stagedText = rendered.text;
-                    if (rendered.replaced > 0 || rendered.unmapped > 0) {
-                      console.log(`[render-source-tokens] replaced=${rendered.replaced}, unmapped=${rendered.unmapped}, parens-stripped=${rendered.parentheticalsStripped}`);
-                    }
+                  // Render [Quelle N] tokens → footnote links. Run this
+                  // even with an empty source map so disobedient invented
+                  // tokens such as "[Quelle 1]" are removed before persistence.
+                  const rendered = renderSourceTokens(stagedText, serverSourceMap);
+                  stagedText = rendered.text;
+                  if (rendered.replaced > 0 || rendered.unmapped > 0) {
+                    console.log(`[render-source-tokens] replaced=${rendered.replaced}, unmapped=${rendered.unmapped}, parens-stripped=${rendered.parentheticalsStripped}`);
                   }
 
                   if (sourceContext && sourceContext.trim().length > 200) {
@@ -1063,13 +1100,20 @@ export function useChatSend(
                   console.error("[scrub-citations] Pre-persist pipeline failed (non-critical):", e);
                 }
               }
+              const allSourceGroups = dedupeSourceGroups([
+                ...retrievalResults,
+                ...(toolFoundSources.length > 0 ? [{ provider: "TOOL", results: toolFoundSources, latencyMs: 0 }] : []),
+                ...sourceMapToGroups(serverSourceMap),
+              ]);
               let assistantMsg: ChatMessage | null = null;
               if (privacyNoStore) {
                 assistantMsg = {
                   id: crypto.randomUUID(),
                   chat_id: currentChatId!,
                   role: "assistant",
-                  content: { text: responseToPersist },
+                  content: allSourceGroups.length > 0
+                    ? { text: responseToPersist, sources: allSourceGroups }
+                    : { text: responseToPersist },
                   created_at: new Date().toISOString(),
                 } as ChatMessage;
                 setMessages(prev => [...prev, assistantMsg!]);
@@ -1079,12 +1123,14 @@ export function useChatSend(
                   id: optimisticId,
                   chat_id: currentChatId!,
                   role: "assistant",
-                  content: { text: responseToPersist },
+                  content: allSourceGroups.length > 0
+                    ? { text: responseToPersist, sources: allSourceGroups }
+                    : { text: responseToPersist },
                   created_at: new Date().toISOString(),
                 } as ChatMessage;
                 setMessages(prev => [...prev, optimisticMsg]);
 
-                assistantMsg = await insertMessage(currentChatId!, "assistant", responseToPersist);
+                assistantMsg = await insertMessage(currentChatId!, "assistant", responseToPersist, allSourceGroups);
                 if (assistantMsg) {
                   setMessages(prev => prev.map(m => m.id === optimisticId ? assistantMsg! : m));
                 }
@@ -1103,7 +1149,6 @@ export function useChatSend(
 
               // Store sources for this specific assistant message
               if (assistantMsg) {
-                const allSourceGroups = [...retrievalResults, ...toolFoundSources.length > 0 ? [{ provider: "TOOL", results: toolFoundSources, latencyMs: 0 }] : []];
                 if (allSourceGroups.length > 0) {
                   setSourceResultsMap(prev => ({ ...prev, [assistantMsg.id]: allSourceGroups.map(sr => ({ provider: sr.provider, results: sr.results })) }));
                 }
@@ -1233,6 +1278,7 @@ export function useChatSend(
     sourceResults,
     setSourceResults,
     sourceResultsMap,
+    setSourceResultsMap,
     isSearchingSources,
     citationAnalysisMap,
     documentDetectionMap,

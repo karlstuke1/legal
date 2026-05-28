@@ -230,7 +230,7 @@ Behalte den restlichen Text EXAKT bei. Gib ZUSÄTZLICH eine Liste der gefundenen
       ],
       responseFormat: PSEUDONYMIZE_SCHEMA,
       maxTokens: 12000,
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       requireParameters: true,
     });
 

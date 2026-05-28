@@ -90,7 +90,7 @@ Maximal 12 Klauseln. Sortiere nach Risiko (hoch zuerst).`
         ],
       responseFormat: RISK_REPORT_SCHEMA,
       maxTokens: 6000,
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       requireParameters: true,
     });
 

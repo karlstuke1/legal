@@ -137,7 +137,7 @@ Wenn KEINE klaren Probleme: verified=true, issues=[], repaired_text="".`;
       ],
       responseFormat: VERIFY_ANSWER_SCHEMA,
       maxTokens: 9000,
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       requireParameters: true,
       signal: AbortSignal.timeout(8000),
     });

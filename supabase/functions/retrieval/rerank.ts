@@ -14,7 +14,7 @@
  * `sourceContext`.
  *
  * Cost / latency budget:
- *   - One OpenRouter GPT-5.5 call with high reasoning and strict schema.
+ *   - One OpenRouter GPT-5.5 call with low reasoning and strict schema.
  *
  * Failure-safe: any error returns the input list unchanged. The caller
  * never sees a thrown exception.
@@ -115,7 +115,7 @@ export async function rerankResults<T extends RerankableResult>(
       ],
       responseFormat: RERANK_SCHEMA,
       maxTokens: 2500,
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       requireParameters: true,
       signal: controller.signal,
     });

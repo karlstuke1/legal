@@ -205,7 +205,7 @@ async function callAI(
     messages,
     responseFormat: schema,
     maxTokens: schema ? 4000 : 12000,
-    reasoningEffort: "high",
+    reasoningEffort: "low",
     requireParameters: true,
   });
 
