@@ -17,7 +17,7 @@ import { useChatExport } from "@/hooks/use-chat-export";
 import { toast } from "@/hooks/use-toast";
 import { useChatSend } from "@/hooks/use-chat-send";
 import { pinMessage, unpinMessage, fetchPinnedMessageIds } from "@/lib/pin-api";
-import type { ChatFilters } from "@/lib/types";
+import type { ChatFilters, ChatMessage } from "@/lib/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +28,7 @@ import {
 import { ChevronDown, FolderOpen } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { UpgradeDialog } from "@/components/UpgradeDialog";
+import { hasRecoverableStreamingDraft } from "@/lib/streaming-draft";
 
 export default function ChatPage() {
   const { chatId } = useParams<{ chatId?: string }>();
@@ -79,6 +80,46 @@ export default function ChatPage() {
   const isLawyer = userRole === "anwalt" || userRole === "inhouse";
   const userMessageCount = messages.filter(m => m.role === "user").length;
   const iterationLimitReached = userMessageCount >= MAX_ITERATIONS;
+  const draftRecoveryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopDraftRecovery = useCallback(() => {
+    if (draftRecoveryTimerRef.current) {
+      clearInterval(draftRecoveryTimerRef.current);
+      draftRecoveryTimerRef.current = null;
+    }
+  }, []);
+
+  const applyLoadedMessages = useCallback((loadedMessages: ChatMessage[]) => {
+    setMessages(loadedMessages);
+    const restoredMap: Record<string, any[]> = {};
+    let latestSources: any[] = [];
+    for (const msg of loadedMessages) {
+      const sources = msg.content?.sources;
+      if (msg.role === "assistant" && Array.isArray(sources) && sources.length > 0) {
+        restoredMap[msg.id] = sources;
+        latestSources = sources;
+      }
+    }
+    setSourceResultsMap(restoredMap);
+    setSourceResults(latestSources);
+  }, [setMessages, setSourceResults, setSourceResultsMap]);
+
+  const startDraftRecovery = useCallback((targetChatId: string, loadedMessages: ChatMessage[]) => {
+    stopDraftRecovery();
+    if (!hasRecoverableStreamingDraft(loadedMessages)) return;
+
+    let attempts = 0;
+    draftRecoveryTimerRef.current = setInterval(async () => {
+      attempts += 1;
+      const latestMessages = await fetchMessages(targetChatId);
+      applyLoadedMessages(latestMessages);
+      if (!hasRecoverableStreamingDraft(latestMessages) || attempts >= 80) {
+        stopDraftRecovery();
+      }
+    }, 1500);
+  }, [applyLoadedMessages, stopDraftRecovery]);
+
+  useEffect(() => () => stopDraftRecovery(), [stopDraftRecovery]);
 
   // Load profile defaults — re-run whenever we switch to a new (unsaved) chat
   const profileLoadedForChat = useRef<string | null>(null);
@@ -142,18 +183,8 @@ export default function ChatPage() {
       const loadChat = (skipMessages: boolean) => {
         if (!skipMessages) {
           fetchMessages(chatId).then((loadedMessages) => {
-            setMessages(loadedMessages);
-            const restoredMap: Record<string, any[]> = {};
-            let latestSources: any[] = [];
-            for (const msg of loadedMessages) {
-              const sources = msg.content?.sources;
-              if (msg.role === "assistant" && Array.isArray(sources) && sources.length > 0) {
-                restoredMap[msg.id] = sources;
-                latestSources = sources;
-              }
-            }
-            setSourceResultsMap(restoredMap);
-            setSourceResults(latestSources);
+            applyLoadedMessages(loadedMessages);
+            startDraftRecovery(chatId, loadedMessages);
           });
         }
         fetchChat(chatId).then(chat => {
@@ -182,9 +213,10 @@ export default function ChatPage() {
     } else {
       setActiveChatId(null);
       setMessages([]);
+      stopDraftRecovery();
       resetState();
     }
-  }, [chatId]);
+  }, [chatId, applyLoadedMessages, startDraftRecovery, stopDraftRecovery]);
 
   const handleFiltersChange = (newFilters: ChatFilters) => {
     setFilters(newFilters);

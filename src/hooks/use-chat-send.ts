@@ -22,6 +22,7 @@ import { toast } from "@/hooks/use-toast";
 import type { ChatFilters, ChatMessage } from "@/lib/types";
 import type { ThinkingStep } from "@/components/ThinkingSteps";
 import { detectDocumentContent, type DocumentDetection } from "@/lib/document-detector";
+import { STREAM_DRAFT_SUFFIX, STREAM_INTERRUPTED_SUFFIX } from "@/lib/streaming-draft";
 
 // Optimization #6: More precise regex anchored at text end, minimum 20 chars, only strip final disclaimer
 const LEGAL_DISCLAIMER_REGEX = /\n\s*Hinweis:\s*Diese\s+(?:Analyse|Antwort|Information)\s+wurde\s+KI[-\s]?gestützt\s+erstellt\s+und\s+ersetzt\s+keine\s+individuelle\s+Rechtsberatung\.[^\n]{0,200}$/i;
@@ -36,8 +37,6 @@ const MIN_THINKING_PHASE_MS = 1400;
 const STREAM_DRAFT_MIN_CHARS = 80;
 const STREAM_DRAFT_SAVE_INTERVAL_MS = 1500;
 const STREAM_DRAFT_SAVE_DELTA_CHARS = 240;
-const STREAM_DRAFT_SUFFIX = "\n\n*Antwort wird noch erstellt. Falls die Seite neu geladen wurde, kann dieser Stand unvollständig sein.*";
-const STREAM_INTERRUPTED_SUFFIX = "\n\n*Antwort wurde unterbrochen. Bitte ggf. neu generieren.*";
 
 function fallbackChatTitle(query: string): string {
   const normalized = query.replace(/\s+/g, " ").trim();

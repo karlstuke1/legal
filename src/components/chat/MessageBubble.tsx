@@ -16,6 +16,7 @@ import { ConfidenceBadge } from "./ConfidenceBadge";
 import { RiskReport } from "./RiskReport";
 import type { DocumentDetection } from "@/lib/document-detector";
 import { DOCUMENT_TYPE_LABELS } from "@/lib/document-detector";
+import { getStreamingDraftState, stripStreamingDraftMarkers } from "@/lib/streaming-draft";
 
 interface SourceGroup {
   provider: string;
@@ -147,7 +148,7 @@ function MessageActions({
   const isTemporaryMessage = msg.id.startsWith("__");
 
   const handleCopy = () => {
-    const { textBefore } = parseInteractiveQuestions(msg.content.text);
+    const { textBefore } = parseInteractiveQuestions(stripStreamingDraftMarkers(msg.content.text));
     navigator.clipboard.writeText(textBefore.trim());
     toast({ title: "Kopiert" });
   };
@@ -198,9 +199,11 @@ export const MessageBubble = React.memo(function MessageBubble({
   const [showDocPreview, setShowDocPreview] = useState(false);
   if (msg.role === "user") return <UserBubble text={msg.content.text} />;
 
-  const { questions, textBefore, textAfter } = parseInteractiveQuestions(msg.content.text);
+  const draftState = getStreamingDraftState(msg.content.text);
+  const displayText = stripStreamingDraftMarkers(msg.content.text);
+  const { questions, textBefore, textAfter } = parseInteractiveQuestions(displayText);
   const showInteractive = questions.length > 0 && isLastMessage && msg.id !== "__streaming__" && onSuggestionClick;
-  const isErrorMessage = msg.content.text.startsWith("⚠️");
+  const isErrorMessage = displayText.startsWith("⚠️");
   const isComplete = msg.id !== "__streaming__";
 
   if (isErrorMessage) {
@@ -248,18 +251,36 @@ export const MessageBubble = React.memo(function MessageBubble({
             <DocumentCard
               detection={documentDetection!}
               content={msg.content.text}
-              onOpenEditor={() => onOpenDocumentEditor!(msg.content.text, documentDetection!.title)}
+                  onOpenEditor={() => onOpenDocumentEditor!(msg.content.text, documentDetection!.title)}
               showPreview={showDocPreview}
               onTogglePreview={() => setShowDocPreview(!showDocPreview)}
             />
           ) : (
             <>
-              {/* Main content */}
-              <div className="chat-prose max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                  {preprocessContent(showInteractive ? textBefore : msg.content.text, sourceResults)}
-                </ReactMarkdown>
-              </div>
+	              {/* Main content */}
+	              <div className="chat-prose max-w-none">
+	                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+	                  {preprocessContent(showInteractive ? textBefore : displayText, sourceResults)}
+	                </ReactMarkdown>
+	              </div>
+	              {draftState && (
+	                <div className={`mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-[12px] ${
+	                  draftState === "active"
+	                    ? "border-amber-500/20 bg-amber-500/5 text-amber-700 dark:text-amber-300"
+	                    : "border-border/60 bg-muted/35 text-muted-foreground"
+	                }`}>
+	                  {draftState === "active" ? (
+	                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+	                  ) : (
+	                    <AlertTriangle className="h-3.5 w-3.5" />
+	                  )}
+	                  <span>
+	                    {draftState === "active"
+	                      ? "Antwort wird im Hintergrund fertiggestellt. Diese Ansicht aktualisiert sich automatisch."
+	                      : "Diese Antwort wurde während der Erstellung unterbrochen. Der gespeicherte Stand kann unvollständig sein."}
+	                  </span>
+	                </div>
+	              )}
 
               {/* Interactive questions */}
               {showInteractive && (
