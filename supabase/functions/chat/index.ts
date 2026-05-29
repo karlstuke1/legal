@@ -845,6 +845,7 @@ Deno.serve(async (req) => {
     let usageData: { prompt_tokens?: number; completion_tokens?: number } | null = null;
     let contentReceived = false;
     let toolEventsSent = false;
+    let upstreamStreamError: any = null;
     // Track the last finish_reason we saw across chunks so we can detect
     // silent truncations on stream-end (safety filter, content filter,
     // upstream disconnect, etc. — anything other than the natural "stop").
@@ -911,8 +912,17 @@ Deno.serve(async (req) => {
             console.warn(`[chat] Stream closed without clean stop. last finish_reason=${lastFinishReason}`);
             sendNotice(controller, truncationNotice(lastFinishReason));
           } else if (!contentReceived) {
-            console.warn("[chat] Stream ended without content! Usage:", JSON.stringify(usageData));
-            sendNotice(controller, truncationNotice("stream_error"));
+            if (upstreamStreamError) {
+              // OpenRouter can return provider errors as SSE `data: { error }`
+              // chunks with HTTP 200. We already forwarded that error chunk to
+              // the frontend above; do not append a synthetic content notice,
+              // otherwise the frontend treats the failed stream as a successful
+              // assistant answer and never retries.
+              console.warn("[chat] Upstream stream ended with provider error and no content:", JSON.stringify(upstreamStreamError));
+            } else {
+              console.warn("[chat] Stream ended without content! Usage:", JSON.stringify(usageData));
+              sendNotice(controller, truncationNotice("stream_error"));
+            }
           }
           controller.close();
           logUsage(finalModel, usageData, workspace_id, chat_id, message_id, sb).catch(e =>
@@ -928,6 +938,10 @@ Deno.serve(async (req) => {
           for (const line of text.split("\n")) {
             if (!line.startsWith("data: ") || line.includes("[DONE]")) continue;
             const json = JSON.parse(line.slice(6));
+            if (json.error) {
+              upstreamStreamError = json.error;
+              console.warn("[chat] Upstream streamed error:", JSON.stringify(json.error));
+            }
             if (json.usage) usageData = json.usage;
             if (json.choices?.[0]?.delta?.content) contentReceived = true;
             const finishReason = json.choices?.[0]?.finish_reason;

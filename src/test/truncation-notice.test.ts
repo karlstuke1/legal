@@ -97,4 +97,21 @@ describe("chat stream handler — single-emission invariant", () => {
     const callSites = Array.from(source.matchAll(/logUsage\s*\(\s*finalModel/g));
     expect(callSites.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("does not convert upstream streamed provider errors into assistant content", () => {
+    const source = readFileSync(
+      resolve(__dirname, "../../supabase/functions/chat/index.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("upstreamStreamError");
+    expect(source).toContain("OpenRouter can return provider errors as SSE");
+    expect(source).toContain("do not append a synthetic content notice");
+
+    const errorBranch = source.slice(
+      source.indexOf("if (upstreamStreamError)"),
+      source.indexOf("} else {", source.indexOf("if (upstreamStreamError)")),
+    );
+    expect(errorBranch).not.toContain("sendNotice(controller");
+  });
 });
