@@ -250,6 +250,12 @@ function dedupeSourceGroups(groups: SourceGroup[]): SourceGroup[] {
   return out;
 }
 
+function dropLowRelevanceNoise(results: RetrievalResult[]): RetrievalResult[] {
+  const hasStrongRelevantHit = results.some(r => typeof r.relevance === "number" && r.relevance >= 0.5);
+  if (!hasStrongRelevantHit) return results;
+  return results.filter(r => typeof r.relevance !== "number" || r.relevance >= 0.25);
+}
+
 /** Build concise source context string for the AI from retrieval results */
 function buildSourceContext(
   results: { provider: string; results: RetrievalResult[]; latencyMs?: number }[],
@@ -285,6 +291,7 @@ function buildSourceContext(
     });
     if (realResults.length === 0) return "";
   }
+  realResults = dropLowRelevanceNoise(realResults);
 
   // Deduplication
   const seen = new Map<string, RetrievalResult>();
@@ -417,6 +424,7 @@ function buildSourceItems(
     });
     if (realResults.length === 0) return [];
   }
+  realResults = dropLowRelevanceNoise(realResults);
 
   const seen = new Map<string, RetrievalResult>();
   for (const r of realResults) {
