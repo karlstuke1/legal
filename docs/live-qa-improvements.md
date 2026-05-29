@@ -41,6 +41,8 @@ Environment: https://legal-gamma-three.vercel.app
 - Added an immediate fallback chat title for first-message chats so interrupted first answers no longer leave the sidebar stuck at `Neuer Chat`; successful completions still refine the title through the title generator.
 - Render bare `Quelle 2` / `Quellen 1 und 3` mentions as source footnotes, covering the mobile observation where a second source marker appeared unlinked.
 - Live retest with the built-in Datenschutz prompt exposed RIS false positives for `DSt` / Disziplinarstatut and unrelated Rechtssatz intros. Added a RIS Datenschutz source filter so DSG/DSGVO/Datenschutz queries only keep RIS evidence whose own title/snippet/ref contains privacy-law signals; otherwise the answer falls back to the explicit no-verified-sources path instead of citing unrelated RIS documents.
+- Production smoke testing on 2026-05-29 exposed OpenRouter streamed provider errors (`data: { error }` with code `429`) being converted into the generic assistant interruption notice. Fixed the chat stream proxy so these remain retryable errors instead of saved assistant content.
+- Production smoke testing for the RS0034826 prompt confirmed retrieval returns the exact Rechtssatz as top verified evidence, but low-relevance verified RIS documents were still included as extra numbered-source candidates. Added a source payload filter that drops low-relevance rerank noise once a strong relevant hit exists.
 
 ## Improvement Candidates
 
@@ -57,6 +59,7 @@ Environment: https://legal-gamma-three.vercel.app
 - File upload, real document embedding, compare execution, settings mutation, invite/referral flows, exports, and billing actions were not exhaustively exercised in this pass because they would require uploading/submitting data or changing account state. Their pages/forms loaded where route-smoked.
 - Mobile onboarding still needs a focused UX pass. The product tour and confidentiality/AI disclosure consent can be awkward to dismiss on a phone, especially if they appear close together.
 - Datenschutz/DSGVO coverage needs a proper provider expansion pass. The new filter prevents wrong RIS sources, but the app may now answer some Datenschutz prompts with no verified source instead of retrieving EUR-Lex/CURIA/DSB-specific evidence.
+- Direct calls to the `chat` Edge Function without frontend/client retrieval can still under-source some case-law questions because the model may choose only `lookup_norm` and seed a statute source. The browser app path performs retrieval first and passes `source_items`, but the server should eventually run the same retrieval planner itself for direct API robustness.
 
 ## Verification Run
 
@@ -73,3 +76,5 @@ Environment: https://legal-gamma-three.vercel.app
 - Live direct RIS API check: exact query text with `bloß` / `Verjährung` returned the Rechtssatz document `JJR_19790510_OGH0002_0080OB00514_7900000_001` and `RS0034826`.
 - Live UI RS0034826 regression: because browser automation could not type `ß` / `ä`, submitted the transliterated prompt with `bloss` / `Verjaehrung`; retrieval still resolved the exact official RIS Rechtssatz and direct document URL.
 - Final live UI RS0034826 regression after source anchoring: answer body begins with `Gerichtliche Schritte, die die Geltendmachung eines Rechtes bloß vorbereiten, unterbrechen die Verjährung nicht.` and links it to the verified source footnote; source panel shows `RIS-Justiz RS0034826`; no old fabricated references were present; console had no app errors.
+- Production Edge Function smoke after retry fix: `Was ist Mord nach § 75 StGB in Österreich?` returned a real streamed answer on first attempt, direct RIS `§ 75 Strafgesetzbuch` source, no raw URL, and no generic RIS search URL.
+- Production frontend-style RS0034826 flow after source-noise filter: retrieval top hit was `RIS-Justiz RS0034826`, chat source map included that exact document, answer said the preparatory steps do not interrupt limitation, and the answer contained no raw RS number or raw URL.
