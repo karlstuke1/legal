@@ -28,6 +28,10 @@ export function isRisProvider(source: EvidenceSourceLike): boolean {
   return normalizeProvider(source).startsWith("RIS");
 }
 
+export function isFindokProvider(source: EvidenceSourceLike): boolean {
+  return normalizeProvider(source).includes("FINDOK");
+}
+
 export function isRisSearchUrl(url: string): boolean {
   if (!url || !/ris\.bka\.gv\.at/i.test(url)) return false;
   try {
@@ -49,6 +53,81 @@ export function isRisDirectDocumentUrl(url: string): boolean {
   }
 }
 
+const FINDOK_SESSION_TOKEN_PATTERNS: RegExp[] = [
+  /[?&]execution=e\d+s\d+/i,
+  /[?&]_eventId=[^&]+/i,
+  /[?&]jsessionid=[^&]+/i,
+  /;jsessionid=[^?&]+/i,
+  /[?&]request-id=[^&]+/i,
+  /[?&]sid=[A-Z0-9]{20,}/i,
+];
+
+const FINDOK_STABLE_ID_RE = /[?&](?:gz|id|dokumentId)=([^&#]+)/i;
+
+function hasFindokSessionToken(url: string): boolean {
+  return FINDOK_SESSION_TOKEN_PATTERNS.some((re) => re.test(url));
+}
+
+function isFindokHost(hostname: string): boolean {
+  return /(^|\.)findok\.bmf\.gv\.at$/i.test(hostname);
+}
+
+function safeDecodeUrl(url: string): string {
+  try {
+    return decodeURIComponent(url);
+  } catch {
+    return url;
+  }
+}
+
+function isGoogleFindokSearchUrl(url: string): boolean {
+  const decoded = safeDecodeUrl(url);
+  if (!/site:findok\.bmf\.gv\.at/i.test(decoded)) return false;
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const isGoogle = host === "google.com" || host.endsWith(".google.com") || host.startsWith("www.google.");
+    return isGoogle && parsed.pathname === "/search";
+  } catch {
+    return /google\.[^/]+\/search/i.test(url);
+  }
+}
+
+export function isFindokSearchUrl(url: string): boolean {
+  if (!url) return false;
+  if (isGoogleFindokSearchUrl(url)) return true;
+  if (!/findok\.bmf\.gv\.at/i.test(url)) return false;
+
+  try {
+    const parsed = new URL(url);
+    if (!isFindokHost(parsed.hostname)) return false;
+    if (hasFindokSessionToken(url)) return true;
+
+    const path = parsed.pathname.toLowerCase();
+    const hasStableId = FINDOK_STABLE_ID_RE.test(parsed.search);
+    if (hasStableId) return false;
+
+    return /(?:suche|search|ergebnis|result|liste|findok)$/i.test(path);
+  } catch {
+    return hasFindokSessionToken(url) || !FINDOK_STABLE_ID_RE.test(url);
+  }
+}
+
+export function isFindokDirectDocumentUrl(url: string): boolean {
+  if (!url || !/findok\.bmf\.gv\.at/i.test(url) || isGoogleFindokSearchUrl(url)) return false;
+
+  try {
+    const parsed = new URL(url);
+    if (!isFindokHost(parsed.hostname)) return false;
+    if (hasFindokSessionToken(url)) return false;
+    if (FINDOK_STABLE_ID_RE.test(parsed.search)) return true;
+    return /\.pdf$/i.test(parsed.pathname);
+  } catch {
+    return !hasFindokSessionToken(url) && FINDOK_STABLE_ID_RE.test(url);
+  }
+}
+
 export function classifySourceEvidence(source: EvidenceSourceLike): SourceEvidenceStatus {
   const explicit = source.evidence_status;
   if (VALID_STATUSES.has(explicit as SourceEvidenceStatus)) {
@@ -60,6 +139,14 @@ export function classifySourceEvidence(source: EvidenceSourceLike): SourceEviden
   const url = normalizeUrl(source);
 
   if (/^FALLBACK(?:-|$)/i.test(docRef) || /\bfallback\b/i.test(title)) {
+    return "fallback";
+  }
+
+  if (isFindokProvider(source)) {
+    if (isFindokSearchUrl(url) || /^Findok-Suche/i.test(title) || /^FINDOK$/i.test(docRef)) {
+      return "search_utility";
+    }
+    if (isFindokDirectDocumentUrl(url)) return "verified_document";
     return "fallback";
   }
 

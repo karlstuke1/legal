@@ -322,8 +322,9 @@ function ProviderGroup({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const meta = getProviderMeta(provider);
 
-  const realResults = results.filter(r => r.score > 0.5);
-  const fallbackResults = results.filter(r => r.score <= 0.5);
+  const isVerifiedEvidence = (r: RetrievalResult) => (r.evidence_status || "verified_document") === "verified_document";
+  const realResults = results.filter(r => r.score > 0.5 && isVerifiedEvidence(r));
+  const fallbackResults = results.filter(r => r.score <= 0.5 || !isVerifiedEvidence(r));
 
   return (
     <div>
@@ -350,27 +351,34 @@ function ProviderGroup({
             <SourceCard key={i} result={r} index={i} />
           ))}
           {fallbackResults.map((r, i) => (
-            <div
-              key={`fb-${i}`}
-              className="rounded-xl border border-dashed border-border/30 bg-muted/20 p-3 text-xs min-w-0 overflow-hidden"
-            >
-              <div className="flex items-center gap-2 text-muted-foreground/50">
-                <AlertCircle className="h-3 w-3" />
-                <span className="text-[11px]">Manuelle Suche empfohlen</span>
-              </div>
-              {r.url && (
-                <a
-                  href={r.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[11px] text-foreground/50 underline underline-offset-2 mt-1 inline-block hover:text-foreground transition-colors"
-                >
-                  Direkt in {meta.label} suchen →
-                </a>
-              )}
-            </div>
+            <FallbackSourceCard key={`fb-${i}`} result={r} providerLabel={meta.label} />
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+function FallbackSourceCard({ result: r, providerLabel }: { result: RetrievalResult; providerLabel: string }) {
+  const isSearchUtility = r.evidence_status === "search_utility";
+  const label = isSearchUtility ? "Suchlink, kein Quellenbeleg" : "Manuelle Suche empfohlen";
+  const linkText = isSearchUtility ? "Suchlink öffnen" : `Direkt in ${providerLabel} suchen`;
+
+  return (
+    <div className="rounded-xl border border-dashed border-border/30 bg-muted/20 p-3 text-xs min-w-0 overflow-hidden">
+      <div className="flex items-center gap-2 text-muted-foreground/50">
+        <AlertCircle className="h-3 w-3" />
+        <span className="text-[11px]">{label}</span>
+      </div>
+      {r.url && (
+        <a
+          href={r.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[11px] text-foreground/50 underline underline-offset-2 mt-1 inline-block hover:text-foreground transition-colors"
+        >
+          {linkText} →
+        </a>
       )}
     </div>
   );

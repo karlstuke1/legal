@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   classifySourceEvidence,
+  isFindokDirectDocumentUrl,
+  isFindokSearchUrl,
   isEvidentiarySource,
   isRisDirectDocumentUrl,
   isRisSearchUrl,
@@ -63,5 +65,45 @@ describe("source evidence classification", () => {
 
     expect(classifySourceEvidence(document)).toBe("verified_document");
     expect(classifySourceEvidence(searchFallback)).toBe("search_utility");
+  });
+
+  it("classifies stable Findok document identifiers as verified documents", () => {
+    const directUrls = [
+      "https://findok.bmf.gv.at/findok?dokumentId=DOK-12345",
+      "https://findok.bmf.gv.at/findok?gz=RV%2F7101234%2F2024",
+      "https://findok.bmf.gv.at/findok?id=123456",
+    ];
+
+    for (const url of directUrls) {
+      expect(isFindokDirectDocumentUrl(url)).toBe(true);
+      expect(classifySourceEvidence({ provider: "FINDOK", title: "BFG Erkenntnis", url })).toBe("verified_document");
+      expect(isEvidentiarySource({ provider: "FINDOK", title: "BFG Erkenntnis", url })).toBe(true);
+    }
+  });
+
+  it("classifies Findok site searches and session-bound URLs as search utilities", () => {
+    const searchUrls = [
+      "https://www.google.com/search?q=site%3Afindok.bmf.gv.at%20EStR%202000",
+      "https://findok.bmf.gv.at/findok?execution=e2s1&_eventId=viewDocument&dokumentId=DOK-12345",
+      "https://findok.bmf.gv.at/findok",
+    ];
+
+    for (const url of searchUrls) {
+      expect(isFindokSearchUrl(url)).toBe(true);
+      expect(classifySourceEvidence({ provider: "FINDOK", title: "Findok-Suche", url })).toBe("search_utility");
+      expect(isEvidentiarySource({ provider: "FINDOK", title: "Findok-Suche", url })).toBe(false);
+    }
+  });
+
+  it("keeps generated Findok fallback records out of evidence even with high scores", () => {
+    const fallback = withEvidenceStatus({
+      provider: "FINDOK",
+      doc_ref: "EStR 2000",
+      title: "Einkommensteuerrichtlinien 2000",
+      url: "https://www.google.com/search?q=site%3Afindok.bmf.gv.at%20EStR%202000",
+    }, "fallback");
+
+    expect(classifySourceEvidence(fallback)).toBe("fallback");
+    expect(isEvidentiarySource(fallback)).toBe(false);
   });
 });

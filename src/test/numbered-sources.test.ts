@@ -151,7 +151,7 @@ INHALT: Der Antrag auf Bewilligung der Verfahrenshilfe unterbricht die Verjähru
     const ctx = `[RIS] First Source | Ref: RS01 | URL: https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_1 |
 INHALT: First content here.
 
-[FINDOK] Second Source | Ref: ABC | URL: https://example.test/2 |
+[FINDOK] Second Source | Ref: ABC | URL: https://findok.bmf.gv.at/findok?dokumentId=DOK-2 |
 INHALT: Second content here.`;
     const parsed = parseLegacySourceContext(ctx);
     expect(parsed.length).toBe(2);
@@ -178,7 +178,7 @@ INHALT: content`;
 - [RIS] OGH Rechtssatz RS0034397 | Ref: RS0034397 | URL: https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_19560101_OGH0002_0000000000_0000000_000
 INHALT:
 Der Antrag unterbricht die Verjährung.
-- [FINDOK] BFG Erkenntnis | Ref: RV/123 | URL: https://example.test/2
+- [FINDOK] BFG Erkenntnis | Ref: RV/123 | URL: https://findok.bmf.gv.at/findok?gz=RV%2F123
 INHALT:
 Steuerlicher Inhalt.`;
     const parsed = parseLegacySourceContext(ctx);
@@ -234,13 +234,43 @@ describe("buildNumberedSourcesFromItems", () => {
     expect(out).toHaveLength(1);
     expect(out[0].title).toBe("§ 75 Strafgesetzbuch");
   });
+
+  it("excludes Findok search utilities and generated fallbacks from numbered evidence sources", () => {
+    const out = buildNumberedSourcesFromItems([
+      {
+        provider: "FINDOK",
+        title: "Einkommensteuerrichtlinien 2000",
+        url: "https://www.google.com/search?q=site%3Afindok.bmf.gv.at%20EStR%202000",
+        doc_ref: "EStR 2000",
+        evidence_status: "fallback",
+      },
+      {
+        provider: "FINDOK",
+        title: "Findok-Suche: Umsatzsteuer",
+        url: "https://www.google.com/search?q=site%3Afindok.bmf.gv.at%20Umsatzsteuer",
+        doc_ref: "FINDOK",
+        evidence_status: "search_utility",
+      },
+      {
+        provider: "FINDOK",
+        title: "BFG Erkenntnis",
+        url: "https://findok.bmf.gv.at/findok?dokumentId=DOK-12345",
+        doc_ref: "RV/7101234/2024",
+        evidence_status: "verified_document",
+      },
+    ]);
+
+    expect(out).toHaveLength(1);
+    expect(out[0].title).toBe("BFG Erkenntnis");
+    expect(out[0].url).toContain("dokumentId=DOK-12345");
+  });
 });
 
 describe("appendToolFoundSources", () => {
   it("continues numbering from startIndex", () => {
     const tools = [
       { provider: "RIS", title: "Tool A", url: "https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_A", doc_ref: "RS1" },
-      { provider: "FINDOK", title: "Tool B", url: "https://example.test/b" },
+      { provider: "FINDOK", title: "Tool B", url: "https://findok.bmf.gv.at/findok?dokumentId=DOK-B" },
     ];
     const out = appendToolFoundSources(tools, 3);
     expect(out.length).toBe(2);

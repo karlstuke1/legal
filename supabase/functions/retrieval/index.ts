@@ -1990,6 +1990,7 @@ function getFindokFallback(query: string): SearchResult[] {
       doc_ref: "EStR 2000", title: "Einkommensteuerrichtlinien 2000",
       date: "2000-01-01", url: sanitizeFindokUrl("", "EStR 2000"),
       score: 0.7, highlights: ["§ 4 EStG", "Betriebsausgaben"], provider: "FINDOK", pinpoint: "§ 4 Abs. 4 EStG",
+      evidence_status: "fallback",
     });
   }
   if (q.includes("umsatz") || q.includes("ustg") || q.includes("mehrwert")) {
@@ -1997,6 +1998,7 @@ function getFindokFallback(query: string): SearchResult[] {
       doc_ref: "UStR 2000", title: "Umsatzsteuerrichtlinien 2000",
       date: "2000-01-01", url: sanitizeFindokUrl("", "UStR 2000"),
       score: 0.65, highlights: ["§ 6 UStG", "Kleinunternehmerregelung"], provider: "FINDOK", pinpoint: "§ 6 Abs. 1 Z 27 UStG",
+      evidence_status: "fallback",
     });
   }
   // Manual search fallback with low score
@@ -2004,6 +2006,7 @@ function getFindokFallback(query: string): SearchResult[] {
     doc_ref: "FINDOK", title: `Findok-Suche: "${query}"`,
     date: "", url: sanitizeFindokUrl("", query),
     score: 0.3, highlights: ["Findok durchsuchen"], provider: "FINDOK",
+    evidence_status: "fallback",
   });
   return fallbacks;
 }
