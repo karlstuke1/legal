@@ -110,8 +110,14 @@ Deno.serve(async (req) => {
     // Overall timeout: abort all providers after 15 seconds
     const overallTimeout = AbortSignal.timeout(15000);
     
-    // If decomposed, run ALL sub-queries IN PARALLEL (not sequentially!)
-    const queriesToRun = isDecomposed ? subQueries.slice(0, 3) : [query]; // Cap at 3 sub-queries
+    // If decomposed, run sub-queries in parallel. For explicit norm prompts,
+    // keep the original user query in the batch because decomposition can
+    // drop the law abbreviation (e.g. "§ 33 FinStrG" -> "Abgabenhinterziehung"),
+    // which prevents exact RIS norm seeding.
+    const hasExplicitNormCitation = /(?:§{1,2}|paragraf|paragraph)\s*\d+[a-z]?\b[\s\S]{0,80}\b[A-Za-zÄÖÜäöüß-]{2,}\b/i.test(query);
+    const queriesToRun = isDecomposed
+      ? Array.from(new Set([...(hasExplicitNormCitation ? [query] : []), ...subQueries])).slice(0, 3)
+      : [query]; // Cap at 3 sub-queries
 
     // Shared dedup set across sub-queries: prevents redundant results early
     const globalSeenUrls = new Set<string>();
@@ -886,6 +892,7 @@ function canonicalizeRisSearchUrl(url: string): string {
 /** Laws that require a default Artikel parameter in their RIS URL (e.g. AngG → Art. 1) */
 const LAW_DEFAULT_ARTIKEL: Record<string, string> = {
   "10008069": "1", // Angestelltengesetz (AngG) → Art. 1
+  "10003898": "1", // Finanzstrafgesetz (FinStrG) → Art. 1
 };
 
 function buildRisBundesnormenUrl(gesetzesnummer?: string, artikelInfo?: string, fallbackUrl?: string): string {
@@ -1027,6 +1034,7 @@ async function searchRIS(query: string, reformulated?: ReformulatedQuery | null)
   const paragraphMatch = query.match(/(?:§{1,2}|paragraf|paragraph)\s*(\d+[a-z]?)/i);
   const paragraphNumber = paragraphMatch?.[1];
   const verifiedNormSourcePromise = tryBuildVerifiedRisNormSource(knownLaw, lawInfo, paragraphNumber);
+  const exactQueryNormSourcePromise = resolveExactRisNormSource(query);
 
   // Build API URLs for parallel requests
   const urls: { label: string; url: string }[] = [];
@@ -1148,14 +1156,16 @@ async function searchRIS(query: string, reformulated?: ReformulatedQuery | null)
   console.log(`RIS: direct=${!!lawInfo}, ${urls.map(u => `${u.label}="${u.url.split("?")[1]}"`).join(", ")}`);
 
   try {
-    const [verifiedNormSource, responses] = await Promise.all([
+    const [verifiedNormSource, exactQueryNormSource, responses] = await Promise.all([
       verifiedNormSourcePromise,
+      exactQueryNormSourcePromise,
       Promise.allSettled(urls.map(u => fetchWithTimeout(u.url, 8000))),
     ]);
 
-    if (verifiedNormSource) {
-      results.push(verifiedNormSource);
-      seenRefs.add(verifiedNormSource.doc_ref || verifiedNormSource.title);
+    const exactNormSource = exactQueryNormSource || verifiedNormSource;
+    if (exactNormSource) {
+      results.push(exactNormSource);
+      seenRefs.add(exactNormSource.doc_ref || exactNormSource.title);
     }
 
     for (let i = 0; i < urls.length; i++) {

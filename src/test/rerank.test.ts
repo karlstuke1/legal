@@ -58,6 +58,27 @@ describe("rerankResults", () => {
     expect(out[2].relevance).toBeCloseTo(0.3);
   });
 
+  it("keeps verified paragraph norm sources visible even when the model scores them low", async () => {
+    mockFetch(scoresBody([2, 9, 8]));
+    const input: RerankableResult[] = [
+      {
+        title: "§ 33 Finanzstrafgesetz",
+        doc_ref: "§ 33 FINSTRG",
+        snippet: "Verifizierte RIS-Norm: § 33 Finanzstrafgesetz",
+        provider: "RIS",
+        score: 0.99,
+        evidence_status: "verified_document",
+      },
+      { title: "Rechtssatz A", snippet: "Rechtssatz RS0123456", score: 0.96 },
+      { title: "Rechtssatz B", snippet: "Rechtssatz RS0654321", score: 0.96 },
+    ];
+
+    const out = await rerankResults("Was regelt § 33 FinStrG?", input, "key");
+
+    expect(out[0].title).toBe("§ 33 Finanzstrafgesetz");
+    expect(out[0].relevance).toBeCloseTo(0.98);
+  });
+
   it("falls back to original order on malformed JSON response", async () => {
     mockFetch({
       choices: [{ message: { content: "not json garbage" } }],

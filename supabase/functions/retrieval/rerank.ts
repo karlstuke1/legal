@@ -33,6 +33,7 @@ export interface RerankableResult {
   snippet?: string;
   provider?: string;
   score?: number;
+  evidence_status?: string;
   // Output: 0..1 normalized relevance score added by this module.
   relevance?: number;
 }
@@ -82,6 +83,14 @@ function buildUserPrompt(question: string, results: RerankableResult[]): string 
     if (snippet) lines.push(`    ${snippet}`);
   });
   return lines.join("\n");
+}
+
+function isVerifiedParagraphNorm(result: RerankableResult): boolean {
+  const docRef = result.doc_ref || "";
+  const snippet = result.snippet || "";
+  return result.evidence_status === "verified_document"
+    && (result.score ?? 0) >= 0.95
+    && (/^§\s*\d+/i.test(docRef) || /Verifizierte RIS-Norm/i.test(snippet));
 }
 
 /**
@@ -149,7 +158,9 @@ export async function rerankResults<T extends RerankableResult>(
   // Apply scores. Pad with zeros if the model returned fewer than head.length.
   const ranked = head.map((r, i) => ({
     ...r,
-    relevance: (scores[i] ?? 0) / 10,
+    relevance: isVerifiedParagraphNorm(r)
+      ? Math.max((scores[i] ?? 0) / 10, 0.98)
+      : (scores[i] ?? 0) / 10,
   }));
 
   // Stable sort by relevance descending, falling back to original score.

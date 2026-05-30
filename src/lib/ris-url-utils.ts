@@ -135,6 +135,7 @@ export const LAW_GESETZESNUMMER: Record<string, string> = {
 export const LAW_ARTIKEL: Record<string, string> = {
   angg: "1",
   ang: "1",
+  finstrg: "1",
 };
 
 export const LAW_ALIASES: Record<string, string[]> = {
