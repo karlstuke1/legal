@@ -93,22 +93,33 @@ jobs:
           version: latest
 
       - name: Validate deployment config
+        id: config
         run: |
-          : "${SUPABASE_ACCESS_TOKEN:?Missing SUPABASE_ACCESS_TOKEN secret}"
-          : "${SUPABASE_PROJECT_REF:?Missing SUPABASE_PROJECT_REF secret}"
-          : "${SUPABASE_DB_PASSWORD:?Missing SUPABASE_DB_PASSWORD secret}"
-          : "${OPENROUTER_API_KEY:?Missing OPENROUTER_API_KEY secret}"
-          : "${FIRECRAWL_API_KEY:?Missing FIRECRAWL_API_KEY secret}"
-          : "${APP_BASE_URL:?Missing APP_BASE_URL repository variable}"
-          : "${CORS_ALLOWED_ORIGINS:?Missing CORS_ALLOWED_ORIGINS repository variable}"
+          missing=()
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || missing+=("SUPABASE_ACCESS_TOKEN secret")
+          [ -n "$SUPABASE_PROJECT_REF" ] || missing+=("SUPABASE_PROJECT_REF secret")
+          [ -n "$SUPABASE_DB_PASSWORD" ] || missing+=("SUPABASE_DB_PASSWORD secret")
+          [ -n "$OPENROUTER_API_KEY" ] || missing+=("OPENROUTER_API_KEY secret")
+          [ -n "$FIRECRAWL_API_KEY" ] || missing+=("FIRECRAWL_API_KEY secret")
+          [ -n "$APP_BASE_URL" ] || missing+=("APP_BASE_URL repository variable")
+          [ -n "$CORS_ALLOWED_ORIGINS" ] || missing+=("CORS_ALLOWED_ORIGINS repository variable")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::warning::Skipping Supabase deploy; missing %s\n' "${missing[*]}"
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "can_deploy=true" >> "$GITHUB_OUTPUT"
 
       - name: Link project
+        if: steps.config.outputs.can_deploy == 'true'
         run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
 
       - name: Push database migrations
+        if: steps.config.outputs.can_deploy == 'true'
         run: supabase db push --password "$SUPABASE_DB_PASSWORD"
 
       - name: Set Edge Function secrets
+        if: steps.config.outputs.can_deploy == 'true'
         run: |
           supabase secrets set \
             OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
@@ -120,6 +131,7 @@ jobs:
             --project-ref "$SUPABASE_PROJECT_REF"
 
       - name: Deploy Edge Functions
+        if: steps.config.outputs.can_deploy == 'true'
         run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"
 
   deploy-vercel:
@@ -144,15 +156,27 @@ jobs:
         run: npm ci
 
       - name: Validate Vercel config
+        id: config
         run: |
-          : "${VERCEL_ORG_ID:?Missing VERCEL_ORG_ID secret}"
-          : "${VERCEL_PROJECT_ID:?Missing VERCEL_PROJECT_ID secret}"
+          missing=()
+          [ -n "$VERCEL_ORG_ID" ] || missing+=("VERCEL_ORG_ID secret")
+          [ -n "$VERCEL_PROJECT_ID" ] || missing+=("VERCEL_PROJECT_ID secret")
+          [ -n "${{ secrets.VERCEL_TOKEN }}" ] || missing+=("VERCEL_TOKEN secret")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::warning::Skipping Vercel deploy; missing %s\n' "${missing[*]}"
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "can_deploy=true" >> "$GITHUB_OUTPUT"
 
       - name: Pull Vercel environment
+        if: steps.config.outputs.can_deploy == 'true'
         run: npx vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
 
       - name: Build with Vercel
+        if: steps.config.outputs.can_deploy == 'true'
         run: npx vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
 
       - name: Deploy to Vercel
+        if: steps.config.outputs.can_deploy == 'true'
         run: npx vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
