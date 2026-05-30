@@ -19,6 +19,7 @@ import {
   openRouterChatCompletion,
 } from "../_shared/openrouter.ts";
 import { isEvidentiarySource } from "../_shared/source-evidence.ts";
+import { resolveExactRisRechtssatzSource } from "../_shared/ris-rechtssatz.ts";
 
 // Cost per token (USD). Model ids are stored exactly as reported by OpenRouter
 // so usage logs remain auditable after provider routing.
@@ -656,6 +657,17 @@ Deno.serve(async (req) => {
           ...appendToolFoundSources(exactNormSources, allNumberedSources.length + 1),
         ]);
         console.log(`[chat] Seeded ${exactNormSources.length} exact norm source(s) from user message`);
+      }
+    }
+
+    if (!isExam && !hasExplicitNormReference(lastUserMsg)) {
+      const exactRechtssatzSource = await resolveExactRisRechtssatzSource(lastUserMsg);
+      if (exactRechtssatzSource) {
+        allNumberedSources = dedupeNumberedSources([
+          ...allNumberedSources,
+          ...appendToolFoundSources([exactRechtssatzSource], allNumberedSources.length + 1),
+        ]);
+        console.log(`[chat] Seeded exact RIS Rechtssatz source from user message: ${exactRechtssatzSource.doc_ref}`);
       }
     }
 
