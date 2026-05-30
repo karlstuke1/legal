@@ -23,7 +23,7 @@ export const LAW_GESETZESNUMMER: Record<string, string> = {
   stgb: "10002296",
   abgb: "10001622",
   ugb: "10001702",
-  mrg: "10002521",
+  mrg: "10002531",
   dsg: "10001597",
   dsgvo: "10001597",
   kschg: "10002462",
@@ -92,7 +92,7 @@ export const LAW_GESETZESNUMMER: Record<string, string> = {
   bsvg: "10008691",         // Bauern-Sozialversicherungsgesetz
   agg2: "10001283",         // Arbeit-und-Gesundheit-Gesetz → map to correct
   aschg: "10009121",        // ArbeitnehmerInnenschutzgesetz
-  mrhg: "10002521",         // Alias for MRG
+  mrhg: "10002531",         // Alias for MRG
   richtlwg: "10001945",     // Richterdienstgesetz (RStDG)
   rstdg: "10001945",
   bverg: "20003521",        // Bundesvergabegesetz

@@ -62,8 +62,21 @@ describe("formatSourceLabel", () => {
   it("reverse-looks Gesetzesnummer to pretty law abbreviation", () => {
     expect(formatSourceLabel("10002296")).toBe("StGB");
     expect(formatSourceLabel("10001622")).toBe("ABGB");
+    expect(formatSourceLabel("10002531")).toBe("MRG");
     expect(formatSourceLabel("10002462")).toBe("KSchG");
     expect(formatSourceLabel("10000138")).toBe("B-VG");
+  });
+
+  it("uses a verified MRG paragraph source instead of falling back to RIS search", () => {
+    const directMrgSource = {
+      title: "§ 16 Mietrechtsgesetz",
+      doc_ref: "§ 16 MRG",
+      url: "https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10002531&Paragraf=16&Anlage=&Uebergangsrecht=",
+      provider: "RIS",
+      snippet: "Verifizierte RIS-Norm: § 16 Mietrechtsgesetz",
+    };
+
+    expect(findSourceUrl("§ 16 MRG", [directMrgSource])).toBe(directMrgSource.url);
   });
 
   it("spaces and prefixes compressed OGH Strafsenat case refs", () => {
