@@ -1024,7 +1024,7 @@ async function searchRIS(query: string, reformulated?: ReformulatedQuery | null)
   const seenRefs = new Set<string>();
 
   // Extract § references from query for paragraph-level URLs
-  const paragraphMatch = query.match(/§{1,2}\s*(\d+[a-z]?)/i);
+  const paragraphMatch = query.match(/(?:§{1,2}|paragraf|paragraph)\s*(\d+[a-z]?)/i);
   const paragraphNumber = paragraphMatch?.[1];
   const verifiedNormSourcePromise = tryBuildVerifiedRisNormSource(knownLaw, lawInfo, paragraphNumber);
 
