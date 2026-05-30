@@ -49,8 +49,11 @@ Quelle: § 76 StGB. Privilegierung bei "allgemein begreiflicher heftiger Gemüts
     expect(out).toMatch(/\[§ 5 Abs 1 StGB\]\(https:\/\/www\.ris\.bka\.gv\.at\/[^)]+\)/);
     expect(out).toMatch(/\[§ 76 StGB\]\(https:\/\/www\.ris\.bka\.gv\.at\/[^)]+\)/);
 
-    // Wrong-document guard: no hardcoded Gesetzesnummer literal in any URL
-    expect(out).not.toMatch(/Gesetzesnummer=\d+/);
+    // Vetted StGB paragraphs may use direct NormDokument links.
+    expect(out).toContain("Gesetzesnummer=10002296");
+    expect(out).toContain("Paragraf=75");
+    expect(out).toContain("Paragraf=5");
+    expect(out).toContain("Paragraf=76");
 
     // Backtick-wrap guard: no inline-code wraps a Markdown link
     expect(out).not.toMatch(/`\[[^\]]+\]\(/);
@@ -200,19 +203,22 @@ describe("rendering invariants the system prompt + pipeline guarantee", () => {
       }],
     }]);
 
-    expect(out).toContain("[§ 75 StGB](https://www.ris.bka.gv.at/Ergebnis.wxe");
+    expect(out).toContain("[§ 75 StGB](https://www.ris.bka.gv.at/NormDokument.wxe");
+    expect(out).toContain("Gesetzesnummer=10002296");
+    expect(out).toContain("Paragraf=75");
     expect(out).not.toContain(badSearchUrl);
   });
 
-  it("invariant: no rendered link's URL ever contains a hardcoded Gesetzesnummer", () => {
-    // This is the architectural guarantee from PR #16 — we removed every
-    // path that built NormDokument URLs from a static law-number map.
-    // Any rendered link must use either an authentic retrieval URL (handed
-    // back by RIS itself, in s.url) or a RIS search URL.
+  it("invariant: only vetted core laws may use direct Gesetzesnummer fallback URLs", () => {
+    // We allow direct NormDokument fallbacks only for a small vetted set
+    // such as ABGB/STGB. Unvetted laws still route through RIS search so
+    // a stale or wrong static number cannot silently open the wrong law.
     const draft = `Quelle: § 1295 ABGB | § 75 StGB | § 33 FinStrG | § 20 AngG | RS0094010 | OGH 6 Ob 140/18h`;
     const out = preprocessContent(draft, noSources());
-    // None of these citations pull through with a hardcoded Gesetzesnummer
-    expect(out).not.toMatch(/Gesetzesnummer=\d+/);
+    expect(out).toContain("Gesetzesnummer=10001622");
+    expect(out).toContain("Gesetzesnummer=10002296");
+    expect(out).not.toContain("Gesetzesnummer=10003898");
+    expect(out).not.toContain("Gesetzesnummer=10008069");
   });
 
   it("invariant: a Markdown link is never wrapped in inline-code backticks", () => {

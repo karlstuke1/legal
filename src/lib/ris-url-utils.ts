@@ -138,6 +138,22 @@ export const LAW_ARTIKEL: Record<string, string> = {
   finstrg: "1",
 };
 
+/**
+ * Small paragraph allowlist for direct RIS NormDokument fallback links.
+ *
+ * We deliberately do not use LAW_GESETZESNUMMER wholesale here: that broad
+ * map previously contained at least one bad value and caused users to land
+ * on unrelated laws. These entries are high-traffic norms whose RIS target
+ * pages are stable and already exercised by regression tests/live QA.
+ */
+const TRUSTED_DIRECT_NORM_PARAGRAPHS: Record<string, Set<string>> = {
+  abgb: new Set(["864a", "879", "870", "1295", "1304", "1325", "1331", "1431", "1489", "1497"]),
+  stgb: new Set(["5", "75", "76", "146", "147", "148"]),
+  mrg: new Set(["16"]),
+  kschg: new Set(["1", "6", "28"]),
+  zpo: new Set(["384"]),
+};
+
 export const LAW_ALIASES: Record<string, string[]> = {
   stgb: ["strafgesetzbuch"],
   abgb: ["allgemeines bürgerliches gesetzbuch"],
@@ -212,6 +228,14 @@ export function buildRisSearchUrl(query: string, scope: "Justiz" | "Bundesnormen
 
 export function buildRisDokumentUrl(abfrage: string, dokumentnummer: string): string {
   return `https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=${abfrage}&Dokumentnummer=${dokumentnummer}`;
+}
+
+export function buildRisNormDokumentUrl(
+  gesetzesnummer: string,
+  paragraph: string,
+  artikel = "",
+): string {
+  return `https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&Gesetzesnummer=${encodeURIComponent(gesetzesnummer)}&Artikel=${encodeURIComponent(artikel)}&Paragraf=${encodeURIComponent(paragraph)}&Anlage=&Uebergangsrecht=`;
 }
 
 // ============================================================
@@ -381,6 +405,47 @@ const ALL_LAW_ABBREVS = Object.keys(LAW_GESETZESNUMMER)
 /** Regex to match any known law abbreviation as a word boundary */
 const LAW_ABBREV_RE = new RegExp(`\\b(${ALL_LAW_ABBREVS})\\b`, "i");
 
+function parseSingleParagraphCitation(citationText: string): { paragraph: string; lawKey: string } | null {
+  const rawText = citationText.trim();
+  if (!rawText) return null;
+  if (/§§/.test(rawText) || /\bf{1,2}\.?\b/i.test(rawText)) return null;
+
+  const paragraph = rawText.match(/§\s*(\d+[a-z]?)/i)?.[1];
+  const lawKey = rawText.match(LAW_ABBREV_RE)?.[1]?.toLowerCase();
+  if (!paragraph || !lawKey) return null;
+  return { paragraph, lawKey };
+}
+
+function getGesetzesnummerFromRisUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (!/ris\.bka\.gv\.at$/i.test(parsed.hostname) && !/\.ris\.bka\.gv\.at$/i.test(parsed.hostname)) {
+      return null;
+    }
+    if (!/\/(?:NormDokument|GeltendeFassung)\.wxe$/i.test(parsed.pathname)) return null;
+    return parsed.searchParams.get("Gesetzesnummer");
+  } catch {
+    return url.match(/[?&]Gesetzesnummer=([^&#]+)/i)?.[1] ?? null;
+  }
+}
+
+function buildSourceDerivedParagraphUrl(sourceUrl: string, paragraph: string): string | null {
+  const gesetzesnummer = getGesetzesnummerFromRisUrl(sourceUrl);
+  if (!gesetzesnummer) return null;
+  return buildRisNormDokumentUrl(decodeURIComponent(gesetzesnummer), paragraph);
+}
+
+export function buildTrustedRisNormUrl(citationText: string): string | null {
+  const parsed = parseSingleParagraphCitation(citationText);
+  if (!parsed) return null;
+  if (!TRUSTED_DIRECT_NORM_PARAGRAPHS[parsed.lawKey]?.has(parsed.paragraph.toLowerCase())) return null;
+
+  const gesetzesnummer = LAW_GESETZESNUMMER[parsed.lawKey];
+  if (!gesetzesnummer) return null;
+  const artikel = LAW_ARTIKEL[parsed.lawKey] || "";
+  return buildRisNormDokumentUrl(gesetzesnummer, parsed.paragraph, artikel);
+}
+
 // ============================================================
 // Citation → URL resolution
 // ============================================================
@@ -471,6 +536,11 @@ export function findSourceUrl(citationText: string, allSources: SourceInfo[]): s
         if (hasMatchingParagraph) {
           return s.url;
         }
+
+        const sourceDerivedUrl = buildSourceDerivedParagraphUrl(s.url, paragraph);
+        if (sourceDerivedUrl) {
+          return sourceDerivedUrl;
+        }
         // No more LAW_GESETZESNUMMER fallback here — the static map proved
         // unreliable (e.g. angg → 10008069 actually pointed at the
         // Soziale-Sicherheit-Konvention, not AngG, so users landed on the
@@ -516,7 +586,7 @@ export function buildFallbackCitationUrl(citationText: string): string | null {
   // right law because RIS surfaces the correct document as the top hit.
   const looksLikeNorm = /§/.test(rawText) || LAW_ABBREV_RE.test(rawText);
   if (looksLikeNorm) {
-    return buildRisSearchUrl(rawText, "Bundesnormen");
+    return buildTrustedRisNormUrl(rawText) ?? buildRisSearchUrl(rawText, "Bundesnormen");
   }
 
   return null;

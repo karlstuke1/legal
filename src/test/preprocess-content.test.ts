@@ -125,15 +125,13 @@ describe("preprocessContent — citation rewriting (live-app code path)", () => 
     const response = "Vgl zB Quelle: OGH 15 Os 11/20d | § 75 StGB";
     const out = preprocessContent(response, sources);
 
-    // Both citations should be linked. Paragraph fallback now routes
-    // through a RIS Bundesnormen search (the previous direct
-    // NormDokument URL relied on a hardcoded Gesetzesnummer that had at
-    // least one wrong entry — see ris-url-utils.ts for context).
+    // Both citations should be linked. Vetted core laws such as StGB can
+    // use a direct NormDokument URL; unvetted laws still fall back to RIS
+    // search to avoid the old wrong-Gesetzesnummer class of bug.
     expect(out).toMatch(/\[§ 75 StGB\]\(/);
-    expect(out).toContain("Abfrage=Bundesnormen");
-    // URL never contains a Gesetzesnummer number literal anymore — those
-    // were the source of the wrong-document bug.
-    expect(out).not.toMatch(/Gesetzesnummer=\d/);
+    expect(out).toContain("NormDokument.wxe");
+    expect(out).toContain("Gesetzesnummer=10002296");
+    expect(out).toContain("Paragraf=75");
   });
 
   it("REGRESSION: '§ 20 AngG' fallback URL never points at a hardcoded Gesetzesnummer", () => {
@@ -147,6 +145,36 @@ describe("preprocessContent — citation rewriting (live-app code path)", () => 
     expect(out).toContain("Abfrage=Bundesnormen");
     expect(out).not.toContain("10008069");
     expect(out).not.toMatch(/Gesetzesnummer=\d/);
+  });
+
+  it("REGRESSION: screenshot prompt ABGB links open exact RIS norm pages, not Bundesnormen result lists", () => {
+    const out = preprocessContent(
+      "Anspruchsgrundlage bleibt der allgemeine Schadenersatz nach § 1295 ABGB; bei Mitverschulden ist § 1304 ABGB zu prüfen.",
+      makeSources([]),
+    );
+
+    expect(out).toContain("[§ 1295 ABGB](https://www.ris.bka.gv.at/NormDokument.wxe");
+    expect(out).toContain("Gesetzesnummer=10001622");
+    expect(out).toContain("Paragraf=1295");
+    expect(out).toContain("[§ 1304 ABGB](https://www.ris.bka.gv.at/NormDokument.wxe");
+    expect(out).toContain("Paragraf=1304");
+    expect(out).not.toContain("Ergebnis.wxe?Abfrage=Bundesnormen&Suchworte=%C2%A7%201295%20ABGB");
+  });
+
+  it("uses a retrieved RIS law source to build the exact paragraph URL", () => {
+    const out = preprocessContent("Gemäß § 1295 ABGB haftet der Schädiger.", makeSources([
+      {
+        provider: "RIS",
+        title: "Allgemeines bürgerliches Gesetzbuch",
+        doc_ref: "10001622",
+        url: "https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10001622",
+        evidence_status: "verified_document",
+      },
+    ]));
+
+    expect(out).toContain("[§ 1295 ABGB](https://www.ris.bka.gv.at/NormDokument.wxe");
+    expect(out).toContain("Gesetzesnummer=10001622");
+    expect(out).toContain("Paragraf=1295");
   });
 
   it("captures full paragraph citations with Abs/Z/lit modifiers (no truncation)", () => {
