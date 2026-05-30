@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { LifeBuoy, Bug, RotateCcw, X, Send } from "lucide-react";
+import { useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,6 +9,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { useWorkspace } from "@/lib/workspace";
 import { toast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 
 interface SupportWidgetProps {
   onStartTour: () => void;
@@ -21,18 +24,23 @@ export function SupportWidget({ onStartTour }: SupportWidgetProps) {
   const [sending, setSending] = useState(false);
   const { user } = useAuth();
   const { activeWorkspace } = useWorkspace();
+  const location = useLocation();
+  const isMobile = useIsMobile();
+  const avoidComposer = isMobile && location.pathname.startsWith("/app/chat");
+
+  if (avoidComposer) return null;
 
   const handleSubmitBug = async () => {
     if (!subject.trim() || !description.trim() || !user) return;
     setSending(true);
     try {
-      const { error } = await supabase.from("support_tickets" as any).insert({
+      const { error } = await supabase.from("support_tickets").insert({
         user_id: user.id,
         workspace_id: activeWorkspace?.id || null,
         type: "bug",
         subject: subject.trim(),
         description: description.trim(),
-      } as any);
+      });
       if (error) throw error;
 
       // Also try to send email notification via edge function
@@ -57,7 +65,13 @@ export function SupportWidget({ onStartTour }: SupportWidgetProps) {
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-[100]" data-tour="support-widget">
+    <div
+      className={cn(
+        "fixed right-4 z-[100] sm:right-5",
+        "bottom-[calc(env(safe-area-inset-bottom)+1rem)] sm:bottom-5",
+      )}
+      data-tour="support-widget"
+    >
       <AnimatePresence>
         {open && (
           <motion.div
@@ -65,7 +79,7 @@ export function SupportWidget({ onStartTour }: SupportWidgetProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            className="absolute bottom-14 right-0 w-[320px] bg-card border border-border/40 rounded-2xl shadow-xl overflow-hidden"
+            className="absolute bottom-14 right-0 w-[calc(100vw-2rem)] max-w-[320px] bg-card border border-border/40 rounded-2xl shadow-xl overflow-hidden"
           >
             {view === "menu" && (
               <div className="p-4">
@@ -156,7 +170,7 @@ export function SupportWidget({ onStartTour }: SupportWidgetProps) {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => { setOpen(!open); setView("menu"); }}
-        className="h-12 w-12 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:shadow-xl transition-shadow"
+        className="h-11 w-11 sm:h-12 sm:w-12 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:shadow-xl transition-shadow"
       >
         <LifeBuoy className="h-5 w-5" />
       </motion.button>

@@ -278,7 +278,7 @@ export default function ChatPage() {
               <DropdownMenuTrigger data-tour="matter-dropdown" className="flex items-center gap-1 text-[12px] sm:text-[13px] font-medium text-foreground/50 hover:text-foreground transition-colors">
                 <FolderOpen className="h-3.5 w-3.5 opacity-40 sm:hidden" />
                 <span className="hidden sm:inline">{currentMatter ? currentMatter.name : "Mandantenakte"}</span>
-                <span className="sm:hidden truncate max-w-[100px]">{currentMatter ? currentMatter.name : ""}</span>
+                <span className="sm:hidden truncate max-w-[120px]">{currentMatter ? currentMatter.name : "Ohne Akte"}</span>
                 <ChevronDown className="h-3 w-3 opacity-40" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56">

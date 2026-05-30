@@ -90,7 +90,7 @@ const MODE_EMPTY_STATES: Record<ChatMode, {
 }> = {
   research: {
     title: "Wie kann ich helfen?",
-    subtitle: "Juristische Recherche mit Quellen aus RIS, FindOK und weiteren österreichischen Datenbanken.",
+    subtitle: "Recherche, Dokumentenprüfung und Entwurf mit überprüfbaren Quellen.",
     queries: [
       { icon: Search, text: "Welche Kündigungsfristen gelten nach § 20 AngG?", label: "Arbeitsrecht" },
       { icon: FileText, text: "Prüfe die Wirksamkeit einer AGB-Klausel zur Haftungsbeschränkung nach KSchG", label: "Vertragsrecht" },
@@ -100,7 +100,7 @@ const MODE_EMPTY_STATES: Record<ChatMode, {
   },
   document_review: {
     title: "Dokument zur Prüfung hochladen",
-    subtitle: "Laden Sie ein Dokument hoch und beschreiben Sie den Prüfauftrag.",
+    subtitle: "Dokument hochladen, Prüfauftrag ergänzen, Risiken priorisieren.",
     queries: [
       { icon: FileText, text: "Prüfe diesen Arbeitsvertrag auf problematische Klauseln", label: "Vertragsprüfung" },
       { icon: Search, text: "Analysiere diese AGB auf Wirksamkeit nach §§ 864a, 879 ABGB und KSchG", label: "AGB-Prüfung" },
@@ -110,7 +110,7 @@ const MODE_EMPTY_STATES: Record<ChatMode, {
   },
   draft: {
     title: "Was möchten Sie erstellen?",
-    subtitle: "Sachverhalt beschreiben — Entwurf in 3 Phasen: Sachverhalt → Gliederung → Entwurf.",
+    subtitle: "Sachverhalt beschreiben, Gliederung prüfen, Entwurf erstellen.",
     queries: [
       { icon: PenTool, text: "Erstelle einen Arbeitsvertrag für eine Vollzeitstelle", label: "Arbeitsvertrag" },
       { icon: FileText, text: "Erstelle einen Kaufvertrag für eine Immobilie", label: "Kaufvertrag" },
@@ -120,7 +120,7 @@ const MODE_EMPTY_STATES: Record<ChatMode, {
   },
   vault: {
     title: "Ihre Dokumentensammlung durchsuchen",
-    subtitle: "Fragen zu Ihren Dokumenten — Vergleiche, Zusammenfassungen und Analysen.",
+    subtitle: "Fragen, Vergleiche und Zusammenfassungen zu Ihren Dokumenten.",
     queries: [
       { icon: FolderOpen, text: "Vergleiche die Haftungsklauseln in allen hochgeladenen Verträgen", label: "Vergleich" },
       { icon: Search, text: "Fasse alle Fristen und Termine aus den Dokumenten zusammen", label: "Extraktion" },
@@ -130,7 +130,7 @@ const MODE_EMPTY_STATES: Record<ChatMode, {
   },
   exam: {
     title: "Prüfungsmodus — Jura lernen",
-    subtitle: "Falllösung, Quiz oder Karteikarten — dein KI-Repetitor für die Examensvorbereitung.",
+    subtitle: "Falllösung, Quiz oder Karteikarten für die Vorbereitung.",
     queries: [
       { icon: ClipboardList, text: "Starte ein Multiple-Choice Quiz zum österreichischen Strafrecht", label: "Quiz" },
       { icon: Gavel, text: "Gib mir einen Fall zum Bereicherungsrecht nach § 1431 ABGB", label: "Falllösung" },
@@ -141,11 +141,11 @@ const MODE_EMPTY_STATES: Record<ChatMode, {
 };
 
 const ROLE_GREETINGS: Record<string, { title: string; subtitle: string }> = {
-  anwalt: { title: "Guten Tag", subtitle: "Recherchieren Sie Rechtsprechung, prüfen Sie Dokumente oder erstellen Sie Entwürfe." },
-  inhouse: { title: "Guten Tag", subtitle: "Recherchieren Sie Rechtsprechung, prüfen Sie Verträge oder starten Sie eine Compliance-Analyse." },
+  anwalt: { title: "Guten Tag", subtitle: "Rechtsprechung recherchieren, Dokumente prüfen, Entwürfe erstellen." },
+  inhouse: { title: "Guten Tag", subtitle: "Rechtsprechung recherchieren, Verträge prüfen, Compliance bewerten." },
   student: { title: "Bereit zum Lernen?", subtitle: "Starte eine Falllösung, übe mit Karteikarten oder lass dir ein Schema erklären." },
-  behoerde: { title: "Guten Tag", subtitle: "Recherchieren Sie Verwaltungsrecht, prüfen Sie Bescheide oder erstellen Sie Gutachten." },
-  other: { title: "Wie kann ich helfen?", subtitle: "Juristische Recherche mit Quellen aus RIS, EUR-Lex und weiteren Datenbanken." },
+  behoerde: { title: "Guten Tag", subtitle: "Verwaltungsrecht recherchieren, Bescheide prüfen, Gutachten erstellen." },
+  other: { title: "Wie kann ich helfen?", subtitle: "Juristische Recherche mit überprüfbaren Quellen." },
 };
 
 export function ChatThread({
@@ -286,8 +286,8 @@ export function ChatThread({
 
   if (allMessages.length === 0 && !isThinking) {
     return (
-      <div className="flex flex-1 items-end sm:items-center justify-center px-3 sm:px-6 pb-4 sm:pb-0">
-        <div className="max-w-lg w-full text-center space-y-3 sm:space-y-6">
+      <div className="flex flex-1 items-center justify-center px-3 sm:px-6 py-5 sm:py-0">
+        <div className="w-full max-w-lg -translate-y-3 text-center space-y-4 sm:translate-y-0 sm:space-y-6">
           {/* Art. 50 AI Act – KI-Transparenzhinweis */}
           {!aiHintDismissed && !isMobile && (
             <div className="mx-auto max-w-md rounded-xl border border-border/30 bg-muted/30 px-4 py-3 text-left relative">
@@ -302,17 +302,17 @@ export function ChatThread({
                 <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground/60" />
                 <p className="text-[12px] sm:text-[12.5px] leading-relaxed text-muted-foreground/70">
                   <span className="font-medium text-foreground/60">KI-Transparenzhinweis</span>{" "}
-                  (Art.&nbsp;50 AI Act): Die Antworten dieses Assistenten werden von Künstlicher Intelligenz generiert und ersetzen keine anwaltliche Beratung. Quellenangaben sind stets zu prüfen.
+                  (Art.&nbsp;50 AI Act): Antworten sind KI-generiert, keine anwaltliche Beratung und mit Quellen zu prüfen.
                 </p>
               </div>
             </div>
           )}
 
           <div className="space-y-2 sm:space-y-3">
-            <h2 className="text-[18px] sm:text-[24px] font-semibold tracking-tight text-foreground/70">
+            <h2 className="text-[19px] sm:text-[24px] font-semibold tracking-tight text-foreground/75">
               {personalizedTitle}
             </h2>
-            <p className="text-[13px] sm:text-[14px] text-muted-foreground/40 leading-relaxed max-w-xs mx-auto">
+            <p className="text-[13px] sm:text-[14px] text-muted-foreground/50 leading-relaxed max-w-xs mx-auto text-balance">
               {personalizedSubtitle}
             </p>
             {mode === "vault" && matterName && (
@@ -327,12 +327,12 @@ export function ChatThread({
                   <button
                     key={i}
                     onClick={() => onSuggestionClick(q.text)}
-                    className="flex items-start gap-2 sm:gap-2.5 rounded-xl border border-border/30 bg-card/50 px-3 sm:px-3.5 py-2.5 sm:py-3 text-left transition-all duration-200 hover:border-border/60 hover:bg-card active:scale-[0.98]"
+                    className="group flex items-start gap-2.5 rounded-xl border border-border/35 bg-card/65 px-3.5 py-3 text-left shadow-[0_10px_32px_-28px_hsl(var(--foreground))] transition-all duration-200 hover:-translate-y-0.5 hover:border-border/60 hover:bg-card hover:shadow-[0_18px_42px_-32px_hsl(var(--foreground))] active:scale-[0.99]"
                   >
-                    <Icon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground/50" />
+                    <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/45 transition-colors group-hover:text-foreground/55" />
                     <div className="min-w-0">
                       <span className="text-[11px] sm:text-[12px] font-medium text-muted-foreground/60">{q.label}</span>
-                      <p className="text-[12.5px] sm:text-[13px] text-foreground/70 leading-snug line-clamp-2">{q.text}</p>
+                      <p className="text-[12.5px] sm:text-[13px] text-foreground/75 leading-snug line-clamp-2">{q.text}</p>
                     </div>
                   </button>
                 );
@@ -412,9 +412,9 @@ export function ChatThread({
             {thinkingSteps.length > 0 && (
               <>
                 <ThinkingSteps steps={thinkingSteps} isVisible={true} />
-                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/35 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   <Scale className="h-3 w-3" />
-                  Thinking abgeschlossen · Antwort wird erstellt
+                  Denken abgeschlossen · Antwort wird erstellt
                 </div>
               </>
             )}

@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { motion } from "framer-motion";
 
-const UNIVERSAL_PLACEHOLDER = "Formuliere dein Anliegen so, wie du es einem Menschen erklären würdest. Je klarer Ziel, Kontext und Details, desto besser das Ergebnis.";
+const UNIVERSAL_PLACEHOLDER = "Beschreiben Sie Anliegen, Kontext und gewünschtes Ergebnis.";
 
 const PROMPT_TEMPLATE = `Was möchte ich wissen?
 z.B. "Kann mein Vermieter die Kaution einbehalten, obwohl keine Schäden vorliegen?"
@@ -112,7 +112,7 @@ export function Composer({
       supabase.from("plans").select("monthly_queries_limit").eq("workspace_id", workspaceId).single(),
       supabase.from("usage_ledger").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).gte("created_at", monthStart),
     ]).then(([planRes, usageRes]) => {
-      const limit = (planRes.data as any)?.monthly_queries_limit || 25;
+      const limit = planRes.data?.monthly_queries_limit || 25;
       const used = usageRes.count || 0;
       if (limit < 999999) {
         setQueriesRemaining({ used, limit });
@@ -291,10 +291,10 @@ export function Composer({
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`rounded-2xl border transition-all duration-200 ${
+          className={`rounded-2xl border bg-card/70 shadow-[0_18px_55px_-42px_hsl(var(--foreground))] backdrop-blur-sm transition-all duration-200 ${
             isDragging
-              ? "border-foreground/20 ring-2 ring-foreground/5"
-              : "border-border/40 focus-within:border-border/60"
+              ? "border-foreground/25 ring-2 ring-foreground/5"
+              : "border-border/45 focus-within:border-border/70 focus-within:shadow-[0_22px_60px_-44px_hsl(var(--foreground))]"
           }`}
         >
           <UploadTray files={files} onRemove={removeFile} />
@@ -308,7 +308,7 @@ export function Composer({
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               placeholder={UNIVERSAL_PLACEHOLDER}
-              className="w-full min-h-[56px] sm:min-h-[56px] max-h-[200px] resize-none border-0 bg-transparent p-0 text-[14px] sm:text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground/30 focus:outline-none disabled:opacity-50"
+              className="w-full min-h-[50px] sm:min-h-[56px] max-h-[200px] resize-none border-0 bg-transparent p-0 text-[14px] sm:text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground/36 focus:outline-none disabled:opacity-50"
               rows={2}
               disabled={iterationLimitReached}
             />
@@ -328,6 +328,7 @@ export function Composer({
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={!workspaceId}
+                aria-label="Datei anhängen"
                 className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-muted/30 transition-all"
               >
                 <Paperclip className="h-4 w-4" />
@@ -372,7 +373,8 @@ export function Composer({
                   onClick={onStop}
                   size="icon"
                   variant="ghost"
-                  className="h-9 w-9 rounded-xl"
+                  className="h-9 w-9 rounded-xl border border-border/60 bg-card text-foreground/70 hover:bg-muted/50 hover:text-foreground"
+                  title="Generierung stoppen"
                 >
                   <StopCircle className="h-4 w-4" />
                 </Button>
@@ -381,7 +383,8 @@ export function Composer({
                   onClick={handleSend}
                   disabled={!hasContent || disabled || hasUploadingFiles}
                   size="icon"
-                  className="h-9 w-9 rounded-xl bg-foreground text-background hover:bg-foreground/90 disabled:opacity-25"
+                  className="h-9 w-9 rounded-xl bg-foreground text-background shadow-sm transition-all hover:bg-foreground/90 hover:shadow-md disabled:opacity-25 disabled:shadow-none"
+                  aria-label="Absenden"
                 >
                   <ArrowRight className="h-4 w-4" />
                 </Button>

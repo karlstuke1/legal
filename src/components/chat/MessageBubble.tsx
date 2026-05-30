@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Copy, RotateCcw, Scale, ThumbsUp, ThumbsDown, AlertTriangle, RefreshCw, ChevronDown, ChevronRight, Pin, PinOff, FileText, Download, Eye, EyeOff } from "lucide-react";
+import { Copy, Check, RotateCcw, Scale, ThumbsUp, ThumbsDown, AlertTriangle, RefreshCw, ChevronDown, ChevronRight, Pin, PinOff, FileText, Download, Eye, EyeOff } from "lucide-react";
 import type { ThinkingStep } from "@/components/ThinkingSteps";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
@@ -146,17 +146,26 @@ function MessageActions({
   isPinned?: boolean; onTogglePin?: (messageId: string) => void;
 }) {
   const isTemporaryMessage = msg.id.startsWith("__");
+  const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
     const { textBefore } = parseInteractiveQuestions(stripStreamingDraftMarkers(msg.content.text));
     navigator.clipboard.writeText(textBefore.trim());
+    setCopied(true);
     toast({ title: "Kopiert" });
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const handleFeedbackClick = (rating: FeedbackRating) => {
+    const isNewRating = feedbackRating !== rating;
+    onFeedbackChange(msg.id, rating);
+    if (isNewRating) toast({ title: "Danke für dein Feedback" });
   };
 
   return (
     <div className="flex items-center gap-0 pt-1">
       <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground/40 hover:text-foreground hover:bg-muted/40 rounded-lg transition-all duration-200" onClick={handleCopy} title="Kopieren">
-        <Copy className="h-3 w-3" />
+        {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
       </Button>
       {onRegenerate && isLastMessage && (
         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground/40 hover:text-foreground hover:bg-muted/40 rounded-lg transition-all duration-200" onClick={onRegenerate} title="Neu generieren">
@@ -172,14 +181,14 @@ function MessageActions({
         <Button
           variant="ghost" size="sm"
           className={`h-7 w-7 p-0 rounded-lg transition-all duration-200 ${feedbackRating === "up" ? "text-emerald-600 bg-emerald-500/10 hover:bg-emerald-500/15" : "text-muted-foreground/30 hover:text-emerald-600 hover:bg-muted/40"}`}
-          onClick={() => onFeedbackChange(msg.id, "up")}
+          onClick={() => handleFeedbackClick("up")}
         >
           <ThumbsUp className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="ghost" size="sm"
           className={`h-7 w-7 p-0 rounded-lg transition-all duration-200 ${feedbackRating === "down" ? "text-rose-600 bg-rose-500/10 hover:bg-rose-500/15" : "text-muted-foreground/30 hover:text-rose-600 hover:bg-muted/40"}`}
-          onClick={() => onFeedbackChange(msg.id, "down")}
+          onClick={() => handleFeedbackClick("down")}
         >
           <ThumbsDown className="h-3.5 w-3.5" />
         </Button>

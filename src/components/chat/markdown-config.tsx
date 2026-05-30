@@ -66,7 +66,7 @@ export const mdComponents: Components = {
     <ol className="list-decimal pl-5 mb-5 space-y-1.5 text-[14.5px] leading-[1.8] text-foreground/80 marker:text-foreground/30 marker:font-semibold" {...props}>{children}</ol>
   ),
   li: ({ children, ...props }) => (
-    <li className="text-[14.5px] leading-[1.8] pl-1 relative before:content-['•'] before:absolute before:-left-4 before:text-foreground/20 before:font-bold [ol>&]:before:content-none" {...props}>{children}</li>
+    <li className="text-[14.5px] leading-[1.8] pl-1 relative before:content-['•'] before:absolute before:-left-4 before:text-foreground/30 before:font-bold [ol>&]:before:content-none" {...props}>{children}</li>
   ),
   strong: ({ children, ...props }) => (
     <strong className="font-medium text-foreground/90" {...props}>{children}</strong>
@@ -108,7 +108,7 @@ export const mdComponents: Components = {
       }
     }
     return (
-      <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-[3px] decoration-foreground/20 hover:decoration-foreground/50 transition-colors duration-200 break-all" {...props}>{displayContent}</a>
+      <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-[3px] decoration-foreground/30 hover:decoration-foreground/60 transition-colors duration-200 break-all" {...props}>{displayContent}</a>
     );
   },
   hr: () => <hr className="my-7 border-border/30" />,

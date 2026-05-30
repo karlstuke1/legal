@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ExternalLink, ChevronRight, ChevronDown, Clock, Search, Loader2, AlertCircle, X } from "lucide-react";
+import { ExternalLink, ChevronRight, Clock, Search, Loader2, AlertCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -191,10 +191,10 @@ export function SourcesPanel({ results, isLoading }: SourcesPanelProps) {
               ))}
             </div>
           )}
-          {filteredResults.map(({ provider, results: provResults, latencyMs }) => {
+          {filteredResults.map(({ provider, results: provResults, latencyMs }, index) => {
             if (!provResults?.length) return null;
             return (
-              <ProviderGroup key={provider} provider={provider} results={provResults} latencyMs={latencyMs} />
+              <ProviderGroup key={provider} provider={provider} results={provResults} latencyMs={latencyMs} defaultExpanded={index === 0} />
             );
           })}
           {filteredResults.length === 0 && !isLoading && (searchQuery || jurisdictionFilter) && (
@@ -204,7 +204,9 @@ export function SourcesPanel({ results, isLoading }: SourcesPanelProps) {
           )}
           {hasNoResults && !searchQuery && !jurisdictionFilter && (
             <div className="text-center py-10 px-4">
-              <Search className="h-5 w-5 text-muted-foreground/20 mx-auto mb-3" aria-hidden="true" />
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-muted/40">
+                <Search className="h-4 w-4 text-muted-foreground/50" aria-hidden="true" />
+              </div>
               <p className="text-[12px] text-muted-foreground/50 leading-relaxed">
                 Quellen zu deiner Frage erscheinen hier automatisch — sobald die KI in RIS, Findok oder Parlament recherchiert.
               </p>
@@ -310,12 +312,14 @@ function ProviderGroup({
   provider,
   results,
   latencyMs,
+  defaultExpanded = false,
 }: {
   provider: string;
   results: RetrievalResult[];
   latencyMs?: number;
+  defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const meta = getProviderMeta(provider);
 
   const realResults = results.filter(r => r.score > 0.5);
@@ -327,11 +331,7 @@ function ProviderGroup({
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-2.5 text-[12px] font-medium text-muted-foreground/60 hover:text-foreground mb-2.5 group transition-colors duration-200"
       >
-        {expanded ? (
-          <ChevronDown className="h-3 w-3 shrink-0" />
-        ) : (
-          <ChevronRight className="h-3 w-3 shrink-0" />
-        )}
+        <ChevronRight className={`h-3 w-3 shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
         <Tooltip>
           <TooltipTrigger asChild>
             <div className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium ${meta.color}`}>
@@ -378,7 +378,7 @@ function ProviderGroup({
 
 function SourceCard({ result: r, index: i }: { result: RetrievalResult; index: number }) {
   return (
-    <HoverCard openDelay={300}>
+    <HoverCard openDelay={180} closeDelay={120}>
       <HoverCardTrigger asChild>
         <div
           className="rounded-xl border border-border/30 bg-card/50 p-3.5 text-xs space-y-2 hover:bg-card hover:shadow-md hover:shadow-foreground/[0.02] hover:border-border/50 transition-all duration-300 group cursor-default overflow-hidden min-w-0"

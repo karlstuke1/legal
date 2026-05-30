@@ -6,6 +6,7 @@ import { NavLink } from "@/components/NavLink";
 import { updateChatTitle, deleteChat } from "@/lib/chat-api";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Chat } from "@/lib/types";
+import { NAV_ACTIVE } from "@/lib/utils";
 
 interface Props {
   chat: Chat;
@@ -84,7 +85,7 @@ export function SidebarChatItem({ chat, indent, onDeleted, onRenamed }: Props) {
           to={`/app/chat/${chat.id}`}
           end
           className={`rounded-lg text-muted-foreground hover:text-foreground ${indent ? "pl-7" : ""}`}
-          activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+          activeClassName={NAV_ACTIVE}
         >
           <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-40" />
           <span className="truncate text-[13px] flex-1">{chat.title || "Neuer Chat"}</span>

@@ -58,7 +58,12 @@ export function ChatBanners({ filters, currentMatter, privacyNoStore, autoPseudo
       {isLawyer && !privacyNoStore && !autoPseudonymize && (
         <div className="flex items-center justify-center gap-2 py-1.5 px-3 sm:px-4 text-[10px] sm:text-[12px] text-muted-foreground/70 bg-muted/15 border-b border-border/15">
           <Lock className="h-3 w-3 opacity-40 shrink-0" />
-          <span>Mandantendaten vor Eingabe pseudonymisieren — <button onClick={onShowLawyerHint} className="underline hover:text-foreground transition-colors">Mehr erfahren</button></span>
+          <span>
+            <span className="sm:hidden">Mandantendaten pseudonymisieren</span>
+            <span className="hidden sm:inline">Mandantendaten vor Eingabe pseudonymisieren</span>
+            {" — "}
+            <button onClick={onShowLawyerHint} className="underline hover:text-foreground transition-colors">Mehr erfahren</button>
+          </span>
         </div>
       )}
     </>

@@ -49,7 +49,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import { cn, NAV_ACTIVE } from "@/lib/utils";
 
 
 function AdminBlogLink({ collapsed, location }: { collapsed: boolean; location: { pathname: string } }) {
@@ -62,7 +62,7 @@ function AdminBlogLink({ collapsed, location }: { collapsed: boolean; location: 
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={location.pathname === "/app/admin/blog"}>
-              <NavLink to="/app/admin/blog" className="rounded-xl" activeClassName="bg-sidebar-accent font-medium">
+              <NavLink to="/app/admin/blog" className="rounded-xl" activeClassName={NAV_ACTIVE}>
                 <FileText className="h-4 w-4" />
                 {!collapsed && <span>Blog CMS</span>}
               </NavLink>
@@ -139,7 +139,11 @@ export function AppSidebar() {
   const toggleMatter = (id: string) => {
     setExpandedMatters(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   };
@@ -244,7 +248,7 @@ export function AppSidebar() {
                   asChild
                   isActive={location.pathname === "/app/chat" || location.pathname.startsWith("/app/chat/")}
                 >
-                  <NavLink data-tour="nav-assistant" to="/app/chat" className="rounded-xl" activeClassName="bg-sidebar-accent font-medium">
+                  <NavLink data-tour="nav-assistant" to="/app/chat" className="rounded-xl" activeClassName={NAV_ACTIVE}>
                     <Scale className="h-4 w-4" />
                     {!collapsed && <span>Assistent</span>}
                   </NavLink>
@@ -255,7 +259,7 @@ export function AppSidebar() {
                   asChild
                   isActive={location.pathname.startsWith("/app/matters")}
                 >
-                  <NavLink data-tour="nav-matters" to="/app/matters" className="rounded-xl" activeClassName="bg-sidebar-accent font-medium">
+                  <NavLink data-tour="nav-matters" to="/app/matters" className="rounded-xl" activeClassName={NAV_ACTIVE}>
                     <FolderOpen className="h-4 w-4" />
                     {!collapsed && <span>Akten</span>}
                   </NavLink>
@@ -266,7 +270,7 @@ export function AppSidebar() {
                   asChild
                   isActive={location.pathname === "/app/knowledge"}
                 >
-                  <NavLink data-tour="nav-knowledge" to="/app/knowledge" className="rounded-xl" activeClassName="bg-sidebar-accent font-medium">
+                  <NavLink data-tour="nav-knowledge" to="/app/knowledge" className="rounded-xl" activeClassName={NAV_ACTIVE}>
                     <BookOpen className="h-4 w-4" />
                     {!collapsed && <span>Wissensbasis</span>}
                   </NavLink>
@@ -277,7 +281,7 @@ export function AppSidebar() {
                   asChild
                   isActive={location.pathname === "/app/compare"}
                 >
-                  <NavLink data-tour="nav-compare" to="/app/compare" className="rounded-xl" activeClassName="bg-sidebar-accent font-medium">
+                  <NavLink data-tour="nav-compare" to="/app/compare" className="rounded-xl" activeClassName={NAV_ACTIVE}>
                     <ArrowLeftRight className="h-4 w-4" />
                     {!collapsed && <span>Vergleich</span>}
                   </NavLink>
@@ -288,7 +292,7 @@ export function AppSidebar() {
                   asChild
                   isActive={location.pathname === "/app/pinned"}
                 >
-                  <NavLink data-tour="nav-pinned" to="/app/pinned" className="rounded-xl" activeClassName="bg-sidebar-accent font-medium">
+                  <NavLink data-tour="nav-pinned" to="/app/pinned" className="rounded-xl" activeClassName={NAV_ACTIVE}>
                     <Pin className="h-4 w-4" />
                     {!collapsed && <span>Gepinnt</span>}
                   </NavLink>
@@ -379,7 +383,7 @@ export function AppSidebar() {
 
                     return (
                       <SidebarGroup key={section.label} className="mt-1">
-                        <SidebarGroupLabel className="text-[10px] uppercase tracking-wider text-muted-foreground/40 px-2 mb-1">
+                        <SidebarGroupLabel className="text-[11px] uppercase tracking-wider text-muted-foreground/55 px-2 mb-1">
                           {section.label}
                         </SidebarGroupLabel>
                         <SidebarGroupContent>
