@@ -3,6 +3,8 @@ import {
   extractRisRechtssatzKeywords,
   looksLikeExactRisRechtssatzQuery,
   resolveExactRisRechtssatzSource,
+  resolveExactRisRechtssatzSources,
+  resolveVerifiedRisNormSource,
 } from "../../supabase/functions/_shared/ris-rechtssatz";
 
 const PROMPT = "Unterbrechen gerichtliche Schritte, die die Geltendmachung eines Rechtes bloß vorbereiten, die Verjährung?";
@@ -112,6 +114,35 @@ describe("RIS Rechtssatz exact source resolution", () => {
     expect(source?.snippet).toContain("unterbrechen die Verjährung nicht");
     expect(source?.url).not.toContain("Ergebnis.wxe");
     expect(source?.url).not.toContain("Suchen.wxe");
+  });
+
+  it("also resolves the Rechtssatz norm to a verified direct RIS norm document", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("data.bka.gv.at/ris/api")) return jsonResponse(ogdResult());
+      if (url.endsWith(".xml")) {
+        return textResponse('<absatz typ="erltext" ct="rechtssatz">Gerichtliche Schritte, die die Geltendmachung eines Rechtes bloß vorbereiten, unterbrechen die Verjährung nicht.</absatz>');
+      }
+      if (url.includes("NormDokument.wxe") && url.includes("Paragraf=1497")) {
+        return new Response("<html><body>Allgemeines bürgerliches Gesetzbuch § 1497</body></html>", { status: 200 });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const sources = await resolveExactRisRechtssatzSources(PROMPT);
+
+    expect(sources.map((s) => s.doc_ref)).toEqual([
+      "RIS-Justiz RS0034826",
+      "§ 1497 ABGB",
+    ]);
+    expect(sources[1].url).toBe("https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10001622&Artikel=&Paragraf=1497&Anlage=&Uebergangsrecht=");
+    expect(sources[1].url).not.toContain("Ergebnis.wxe");
+  });
+
+  it("only emits a norm source after confirming the RIS norm document", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("<html><body>keine Dokumente gefunden</body></html>", { status: 200 }));
+
+    await expect(resolveVerifiedRisNormSource("§ 1497 ABGB")).resolves.toBeNull();
   });
 
   it("does not treat ambiguous Rechtssatz search results as exact evidence", async () => {

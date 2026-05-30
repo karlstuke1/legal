@@ -11,6 +11,14 @@ export interface RisRechtssatzSource {
   evidence_status: "verified_document";
 }
 
+const LAW_INFO: Record<string, { title: string; gesetzesnummer: string; artikel?: string }> = {
+  abgb: { title: "Allgemeines bürgerliches Gesetzbuch", gesetzesnummer: "10001622" },
+  stgb: { title: "Strafgesetzbuch", gesetzesnummer: "10002296" },
+  zpo: { title: "Zivilprozessordnung", gesetzesnummer: "10001699" },
+  ang: { title: "Angestelltengesetz", gesetzesnummer: "10008069", artikel: "1" },
+  angg: { title: "Angestelltengesetz", gesetzesnummer: "10008069", artikel: "1" },
+};
+
 const STOPWORDS = new Set([
   "welche", "welcher", "welches", "was", "wie", "wer", "wo", "wann", "warum",
   "für", "ist", "sind", "werden", "kann", "können", "muss", "müssen", "soll", "sollen",
@@ -69,6 +77,7 @@ function stripRisXmlText(value: string): string {
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&#167;|&sect;/gi, "§")
     .replace(/&amp;/gi, "&")
     .replace(/&quot;/gi, "\"")
     .replace(/&apos;/gi, "'")
@@ -109,6 +118,42 @@ function formatRISDate(raw: string): string {
   return iso ? `${iso[3]}.${iso[2]}.${iso[1]}` : raw;
 }
 
+function buildNormDokumentUrl(law: { gesetzesnummer: string; artikel?: string }, paragraph: string): string {
+  const artikel = law.artikel || "";
+  return `https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&Gesetzesnummer=${law.gesetzesnummer}&Artikel=${artikel}&Paragraf=${encodeURIComponent(paragraph)}&Anlage=&Uebergangsrecht=`;
+}
+
+function verifyRisNormHtml(html: string, lawTitle: string, lawAbbr: string, paragraph: string): boolean {
+  const normalized = stripRisXmlText(html).toLowerCase();
+  if (!normalized || /keine dokumente gefunden|kein dokument gefunden|fehler bei der suche/i.test(normalized)) return false;
+  if (!normalized.includes(lawTitle.toLowerCase()) && !normalized.includes(lawAbbr.toLowerCase())) return false;
+  const paraRe = new RegExp(`(?:§|paragraph|paragraf)\\s*${paragraph.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+  return paraRe.test(normalized);
+}
+
+function extractNormCitations(text: string): Array<{ lawAbbr: string; paragraph: string }> {
+  const out: Array<{ lawAbbr: string; paragraph: string }> = [];
+  const seen = new Set<string>();
+  const patterns = [
+    /§{1,2}\s*(\d+[a-z]?)\s+([A-Za-zÄÖÜäöüß-]{2,})/g,
+    /\b([A-Za-zÄÖÜäöüß-]{2,})\s*§{1,2}\s*(\d+[a-z]?)/g,
+  ];
+
+  for (const re of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(text)) !== null) {
+      const paragraph = /^\d/i.test(match[1]) ? match[1] : match[2];
+      const lawAbbr = (/^\d/i.test(match[1]) ? match[2] : match[1]).toLowerCase();
+      if (!LAW_INFO[lawAbbr]) continue;
+      const key = `${lawAbbr}:${paragraph}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ lawAbbr, paragraph });
+    }
+  }
+  return out;
+}
+
 async function fetchTextWithTimeout(url: string, timeoutMs: number): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -131,6 +176,31 @@ async function fetchTextWithTimeout(url: string, timeoutMs: number): Promise<str
 function overlapCount(queryKeywords: string[], text: string): number {
   const haystack = normalizeText(text);
   return queryKeywords.filter((keyword) => haystack.includes(normalizeText(keyword))).length;
+}
+
+export async function resolveVerifiedRisNormSource(citation: string): Promise<RisRechtssatzSource | null> {
+  const norm = extractNormCitations(citation)[0];
+  if (!norm) return null;
+
+  const law = LAW_INFO[norm.lawAbbr];
+  if (!law) return null;
+
+  const url = buildNormDokumentUrl(law, norm.paragraph);
+  const html = await fetchTextWithTimeout(url, 4000);
+  if (!verifyRisNormHtml(html, law.title, norm.lawAbbr, norm.paragraph)) return null;
+
+  return {
+    doc_ref: `§ ${norm.paragraph} ${norm.lawAbbr.toUpperCase()}`,
+    title: `§ ${norm.paragraph} ${law.title}`,
+    date: "",
+    url,
+    score: 0.98,
+    highlights: [law.title, `§ ${norm.paragraph}`, norm.lawAbbr.toUpperCase()],
+    provider: "RIS",
+    pinpoint: `§ ${norm.paragraph}`,
+    snippet: `Verifizierte RIS-Norm: § ${norm.paragraph} ${law.title}`,
+    evidence_status: "verified_document",
+  };
 }
 
 export async function resolveExactRisRechtssatzSource(query: string): Promise<RisRechtssatzSource | null> {
@@ -203,4 +273,19 @@ export async function resolveExactRisRechtssatzSource(query: string): Promise<Ri
     snippet: [rechtssatz, normen].filter(Boolean).join(" | "),
     evidence_status: "verified_document",
   };
+}
+
+export async function resolveExactRisRechtssatzSources(query: string): Promise<RisRechtssatzSource[]> {
+  const source = await resolveExactRisRechtssatzSource(query);
+  if (!source) return [];
+
+  const normCitations = extractNormCitations(source.snippet || "");
+  const normSources = await Promise.all(
+    normCitations.map((norm) => resolveVerifiedRisNormSource(`§ ${norm.paragraph} ${norm.lawAbbr}`)),
+  );
+
+  return [
+    source,
+    ...normSources.filter((norm): norm is RisRechtssatzSource => !!norm),
+  ];
 }

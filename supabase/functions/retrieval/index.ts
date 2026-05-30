@@ -17,7 +17,7 @@ import {
   type SourceEvidenceStatus,
   withEvidenceStatus,
 } from "../_shared/source-evidence.ts";
-import { resolveExactRisRechtssatzSource } from "../_shared/ris-rechtssatz.ts";
+import { resolveExactRisRechtssatzSources } from "../_shared/ris-rechtssatz.ts";
 
 Deno.serve(async (req) => {
   const corsHeaders = makeCorsHeaders(req);
@@ -71,11 +71,11 @@ Deno.serve(async (req) => {
     }
 
     if (providerNames.includes("RIS")) {
-      const exactRechtssatzSource = await resolveExactRisRechtssatzSource(query);
-      if (exactRechtssatzSource) {
+      const exactRechtssatzSources = await resolveExactRisRechtssatzSources(query);
+      if (exactRechtssatzSources.length > 0) {
         return new Response(JSON.stringify([{
           provider: "RIS",
-          results: [exactRechtssatzSource],
+          results: exactRechtssatzSources,
           latencyMs: 0,
         }]), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
