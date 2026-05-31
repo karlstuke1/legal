@@ -7,7 +7,8 @@
  *   - clickable links for every cited norm/case
  *   - link targets that route to the correct provider host
  *   - no Backtick-wrapping that would break Markdown rendering
- *   - no hardcoded-Gesetzesnummer URLs (the "wrong document" bug class)
+ *   - no broad hardcoded-Gesetzesnummer fallbacks outside the vetted
+ *     direct-link allowlist (the "wrong document" bug class)
  *
  * The fixtures below are written by hand to mimic exactly what Claude
  * Sonnet 4.6 produces under the current system prompt — including the

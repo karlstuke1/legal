@@ -390,8 +390,8 @@ function formatBusinessNumber(
 // buildParagraphUrl was deleted — see comments in findSourceUrl /
 // buildFallbackCitationUrl. Direct NormDokument URLs were the source of
 // the "wrong document" class of bug because LAW_GESETZESNUMMER had at
-// least one incorrect entry. We now route every fallback through a
-// RIS search with the full citation text.
+// least one incorrect entry. We now route fallback citations through RIS
+// search unless the exact paragraph is in the small audited allowlist below.
 
 // ============================================================
 // Dynamic law abbreviation regex — built from LAW_GESETZESNUMMER keys
@@ -435,10 +435,15 @@ function buildSourceDerivedParagraphUrl(sourceUrl: string, paragraph: string): s
   return buildRisNormDokumentUrl(decodeURIComponent(gesetzesnummer), paragraph);
 }
 
+function isTrustedDirectNormParagraph(lawKey: string | undefined, paragraph: string | undefined): boolean {
+  if (!lawKey || !paragraph) return false;
+  return TRUSTED_DIRECT_NORM_PARAGRAPHS[lawKey]?.has(paragraph.toLowerCase()) ?? false;
+}
+
 export function buildTrustedRisNormUrl(citationText: string): string | null {
   const parsed = parseSingleParagraphCitation(citationText);
   if (!parsed) return null;
-  if (!TRUSTED_DIRECT_NORM_PARAGRAPHS[parsed.lawKey]?.has(parsed.paragraph.toLowerCase())) return null;
+  if (!isTrustedDirectNormParagraph(parsed.lawKey, parsed.paragraph)) return null;
 
   const gesetzesnummer = LAW_GESETZESNUMMER[parsed.lawKey];
   if (!gesetzesnummer) return null;
@@ -537,7 +542,9 @@ export function findSourceUrl(citationText: string, allSources: SourceInfo[]): s
           return s.url;
         }
 
-        const sourceDerivedUrl = buildSourceDerivedParagraphUrl(s.url, paragraph);
+        const sourceDerivedUrl = isTrustedDirectNormParagraph(gesetz, paragraph)
+          ? buildSourceDerivedParagraphUrl(s.url, paragraph)
+          : null;
         if (sourceDerivedUrl) {
           return sourceDerivedUrl;
         }
@@ -576,14 +583,12 @@ export function buildFallbackCitationUrl(citationText: string): string | null {
     return buildRisSearchUrl(aktenzeichen.replace(/\s+/g, " "), "Justiz");
   }
 
-  // Paragraph references → RIS search using the full citation text.
-  // We deliberately do NOT consult LAW_GESETZESNUMMER here to construct a
-  // direct NormDokument URL: that map has at least one wrong entry
-  // (angg=10008069 → Soziale-Sicherheit-Konvention) and likely more we
-  // haven't caught, so a "direct link" can silently land users on a
-  // completely unrelated document. A search URL with the full citation
-  // ("§ 20 Abs 2 AngG") is one extra click but always points at the
-  // right law because RIS surfaces the correct document as the top hit.
+  // Paragraph references → exact direct links only for the tiny audited
+  // allowlist above; everything else uses a RIS search with the full
+  // citation text. We deliberately do NOT consult LAW_GESETZESNUMMER
+  // wholesale: that map has at least one wrong entry (angg=10008069 →
+  // Soziale-Sicherheit-Konvention) and likely more we have not caught, so
+  // a broad direct-link fallback can silently land users on the wrong law.
   const looksLikeNorm = /§/.test(rawText) || LAW_ABBREV_RE.test(rawText);
   if (looksLikeNorm) {
     return buildTrustedRisNormUrl(rawText) ?? buildRisSearchUrl(rawText, "Bundesnormen");

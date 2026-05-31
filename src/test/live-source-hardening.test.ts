@@ -23,6 +23,37 @@ function localEnv(name: string): string | undefined {
 }
 
 liveDescribe("live source hardening smoke tests", () => {
+  it.each([
+    {
+      label: "§ 1295 ABGB",
+      url: "https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10001622&Artikel=&Paragraf=1295&Anlage=&Uebergangsrecht=",
+      expected: /Allgemeines bürgerliches Gesetzbuch|ABGB/i,
+      paragraph: /§\s*1295|Paragraph\s*1295/i,
+    },
+    {
+      label: "§ 1304 ABGB",
+      url: "https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10001622&Artikel=&Paragraf=1304&Anlage=&Uebergangsrecht=",
+      expected: /Allgemeines bürgerliches Gesetzbuch|ABGB/i,
+      paragraph: /§\s*1304|Paragraph\s*1304/i,
+    },
+    {
+      label: "§ 75 StGB",
+      url: "https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10002296&Artikel=&Paragraf=75&Anlage=&Uebergangsrecht=",
+      expected: /Strafgesetzbuch|StGB/i,
+      paragraph: /§\s*75|Paragraph\s*75/i,
+    },
+  ])("opens $label as a direct RIS norm document, not a result list", async ({ url, expected, paragraph }) => {
+    expect(url).toContain("NormDokument.wxe");
+    expect(url).not.toContain("Ergebnis.wxe");
+
+    const resp = await fetch(url);
+    expect(resp.ok).toBe(true);
+    const html = (await resp.text()).replace(/&#167;|&sect;/g, "§");
+    expect(html).toMatch(expected);
+    expect(html).toMatch(paragraph);
+    expect(html).not.toMatch(/Dokument\s+1\s+bis\s+\d+\s+von\s+\d+/i);
+  }, 20_000);
+
   it("resolves § 75 StGB to a direct RIS norm page, not an Ergebnis search page", async () => {
     const url = "https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10002296&Paragraf=75";
     expect(url).not.toContain("Ergebnis.wxe");
