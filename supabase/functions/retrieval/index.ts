@@ -17,7 +17,10 @@ import {
   type SourceEvidenceStatus,
   withEvidenceStatus,
 } from "../_shared/source-evidence.ts";
-import { resolveExactRisRechtssatzSources } from "../_shared/ris-rechtssatz.ts";
+import {
+  isResponsiveRisRechtssatzSource,
+  resolveExactRisRechtssatzSources,
+} from "../_shared/ris-rechtssatz.ts";
 
 Deno.serve(async (req) => {
   const corsHeaders = makeCorsHeaders(req);
@@ -1239,10 +1242,16 @@ async function searchRIS(query: string, reformulated?: ReformulatedQuery | null)
       }
     }
 
-    const filteredResults = filterAustrianPrivacyLawSources(query, reformulated, results);
-    const filteredCount = results.length - filteredResults.length;
-    if (filteredCount > 0) {
-      console.warn(`[RIS] Filtered ${filteredCount} non-privacy-law result(s) from Datenschutz query.`);
+    const privacyFilteredResults = filterAustrianPrivacyLawSources(query, reformulated, results);
+    const privacyFilteredCount = results.length - privacyFilteredResults.length;
+    if (privacyFilteredCount > 0) {
+      console.warn(`[RIS] Filtered ${privacyFilteredCount} non-privacy-law result(s) from Datenschutz query.`);
+    }
+
+    const filteredResults = privacyFilteredResults.filter((source) => isResponsiveRisRechtssatzSource(query, source));
+    const rechtssatzFilteredCount = privacyFilteredResults.length - filteredResults.length;
+    if (rechtssatzFilteredCount > 0) {
+      console.warn(`[RIS] Filtered ${rechtssatzFilteredCount} off-topic Rechtssatz result(s).`);
     }
 
     if (filteredResults.length === 0) return getRISFallback(query);

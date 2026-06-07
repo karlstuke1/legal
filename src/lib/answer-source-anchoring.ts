@@ -56,7 +56,10 @@ export function ensureResponsiveRechtssatzIntro(text: string, sourceMap: SourceM
     }))
     .sort((a, b) => b.score - a.score || a.source.index - b.source.index);
   const best = candidates[0];
-  if (!best || best.score < 4) return text;
+  if (!best) return text;
+  const tokenCount = keywordSet(best.sentence).size;
+  const requiredScore = Math.min(4, Math.max(3, Math.ceil(tokenCount * 0.35)));
+  if (best.score < requiredScore) return text;
 
   const normalizedText = normalizeForComparison(text);
   const normalizedSentence = normalizeForComparison(best.sentence);

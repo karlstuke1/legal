@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildRisRechtssatzSearchQueries,
   extractRisRechtssatzKeywords,
+  isResponsiveRisRechtssatzSource,
   looksLikeExactRisRechtssatzQuery,
   resolveExactRisRechtssatzSource,
   resolveExactRisRechtssatzSources,
@@ -8,6 +10,7 @@ import {
 } from "../../supabase/functions/_shared/ris-rechtssatz";
 
 const PROMPT = "Unterbrechen gerichtliche Schritte, die die Geltendmachung eines Rechtes bloß vorbereiten, die Verjährung?";
+const EGZPO_PROMPT = "ist eine Klage auf Rechnungslegung im sinne des Artikel 42 EGZPO zulässig zur vorbereitung von schadenersatzklagen?";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -71,6 +74,54 @@ function ogdResult(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function egzpoRs0034949Result(overrides: Record<string, unknown> = {}) {
+  return {
+    OgdSearchResult: {
+      OgdDocumentResults: {
+        OgdDocumentReference: {
+          Data: {
+            Metadaten: {
+              Technisch: {
+                ID: "JJR_19580924_OGH0002_0010OB00372_5800000_001",
+                Applikation: "Justiz",
+                Organ: "OGH",
+              },
+              Allgemein: {
+                DokumentUrl: "https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_19580924_OGH0002_0010OB00372_5800000_001",
+              },
+              Judikatur: {
+                Dokumenttyp: "Rechtssatz",
+                Geschaeftszahl: "1 Ob 372/58; 8 Ob 66/24z",
+                Normen: "EGZPO ArtXLII IA",
+                Entscheidungsdatum: "2024-09-26",
+                Justiz: {
+                  Gericht: "OGH",
+                  Rechtssatznummern: { item: "RS0034949" },
+                },
+              },
+            },
+            Dokumentliste: {
+              ContentReference: {
+                ContentType: "MainDocument",
+                Name: "Hauptdokument",
+                Urls: {
+                  ContentUrl: [
+                    {
+                      DataType: "Xml",
+                      Url: "https://www.ris.bka.gv.at/Dokumente/Justiz/JJR_19580924_OGH0002_0010OB00372_5800000_001/JJR_19580924_OGH0002_0010OB00372_5800000_001.xml",
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          ...overrides,
+        },
+      },
+    },
+  };
+}
+
 describe("RIS Rechtssatz exact source resolution", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -114,6 +165,59 @@ describe("RIS Rechtssatz exact source resolution", () => {
     expect(source?.snippet).toContain("unterbrechen die Verjährung nicht");
     expect(source?.url).not.toContain("Ergebnis.wxe");
     expect(source?.url).not.toContain("Suchen.wxe");
+  });
+
+  it("normalizes Artikel 42 EGZPO into Art XLII searches", () => {
+    expect(buildRisRechtssatzSearchQueries(EGZPO_PROMPT)).toContain(
+      "Art XLII EGZPO Vorbereitung Schadenersatzklage",
+    );
+    expect(extractRisRechtssatzKeywords(EGZPO_PROMPT)).not.toContain("zulässig");
+  });
+
+  it("resolves Flo's EGZPO Art 42 prompt to RS0034949", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("data.bka.gv.at/ris/api") && url.includes("Art%20XLII%20EGZPO%20Vorbereitung%20Schadenersatzklage")) {
+        return jsonResponse(egzpoRs0034949Result());
+      }
+      if (url.includes("data.bka.gv.at/ris/api")) {
+        return jsonResponse({ OgdSearchResult: { OgdDocumentResults: {} } });
+      }
+      if (url.endsWith(".xml")) {
+        return textResponse('<absatz typ="erltext" ct="rechtssatz">Eine Klage nach Art XLII EGZPO ist zur Vorbereitung einer Schadenersatzklage und zur Bezifferung des Schadens unzulässig.</absatz>');
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const source = await resolveExactRisRechtssatzSource(EGZPO_PROMPT);
+
+    expect(fetchMock).toHaveBeenCalled();
+    expect(source).toMatchObject({
+      provider: "RIS",
+      doc_ref: "RIS-Justiz RS0034949",
+      evidence_status: "verified_document",
+      url: "https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_19580924_OGH0002_0010OB00372_5800000_001",
+    });
+    expect(source?.title).toContain("Klage nach Art XLII EGZPO");
+    expect(source?.snippet).toContain("Schadenersatzklage");
+  });
+
+  it("rejects off-topic Rechtssatz sidebar candidates for a focused query", () => {
+    expect(isResponsiveRisRechtssatzSource(EGZPO_PROMPT, {
+      title: "Rechtssatz: Solange ein Strafverfahren anhängig ist, darf kein Disziplinarerkenntnis ergehen.",
+      doc_ref: "RIS-Justiz RS0056880",
+      snippet: "Strafverfahren, Disziplinarerkenntnis, gerichtliche Vorerhebungen",
+      highlights: ["RS0056880"],
+      provider: "RIS",
+    })).toBe(false);
+
+    expect(isResponsiveRisRechtssatzSource(EGZPO_PROMPT, {
+      title: "Rechtssatz: Eine Klage nach Art XLII EGZPO ist zur Vorbereitung einer Schadenersatzklage und zur Bezifferung des Schadens unzulässig.",
+      doc_ref: "RIS-Justiz RS0034949",
+      snippet: "EGZPO ArtXLII IA",
+      highlights: ["RS0034949"],
+      provider: "RIS",
+    })).toBe(true);
   });
 
   it("also resolves the Rechtssatz norm to a verified direct RIS norm document", async () => {

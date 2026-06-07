@@ -64,6 +64,22 @@ describe("answer source anchoring", () => {
     expect(ensureResponsiveRechtssatzIntro(answer, [unrelatedFirstSource])).toBe(answer);
   });
 
+  it("anchors the EGZPO Rechnungslegung Rechtssatz when the answer is paraphrased", () => {
+    const out = ensureResponsiveRechtssatzIntro(
+      "Nein, eine Klage zur Vorbereitung einer Schadenersatzklage ist nach Art XLII EGZPO nicht zulässig, wenn sie nur der Bezifferung des Schadens dient.",
+      [{
+        index: 3,
+        provider: "RIS",
+        title: "Rechtssatz: Eine Klage nach Art XLII EGZPO ist zur Vorbereitung einer Schadenersatzklage und zur Bezifferung des Schadens unzulässig.",
+        url: "https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_19580924_OGH0002_0010OB00372_5800000_001",
+        doc_ref: "RIS-Justiz RS0034949",
+        evidence_status: "verified_document",
+      }],
+    );
+
+    expect(out).toMatch(/^Eine Klage nach Art XLII EGZPO ist zur Vorbereitung einer Schadenersatzklage und zur Bezifferung des Schadens unzulässig\. \[Quelle 3\]/);
+  });
+
   it("adds a source token to the first substantive sentence when the model omitted all tokens", () => {
     const out = ensureAtLeastOneSourceToken(
       "Kurze Überschrift\n\nDas ist eine längere juristische Aussage, die belegt werden muss.",

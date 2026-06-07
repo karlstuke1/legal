@@ -28,6 +28,8 @@ const STOPWORDS = new Set([
   "wenn", "ob", "dass", "weil", "da", "so", "es", "man", "hat", "haben",
   "wird", "wurde", "gibt", "mein", "meine", "meinem", "meinen",
   "ich", "er", "sie", "wir", "ihr", "gelten", "gilt", "bekommt",
+  "artikel", "art", "paragraf", "paragraph", "sinne", "zulässig", "zulaessig",
+  "unzulässig", "unzulaessig", "erlaubt", "verboten", "frage", "fragen",
 ]);
 
 function safeStr(value: unknown): string {
@@ -48,9 +50,49 @@ function normalizeText(value: string): string {
     .replace(/ß/g, "ss");
 }
 
+function toRoman(value: number): string {
+  const numerals: Array<[number, string]> = [
+    [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"],
+    [100, "C"], [90, "XC"], [50, "L"], [40, "XL"],
+    [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+  ];
+  let remaining = value;
+  let out = "";
+  for (const [num, roman] of numerals) {
+    while (remaining >= num) {
+      out += roman;
+      remaining -= num;
+    }
+  }
+  return out;
+}
+
+function singularizeGermanLegalToken(value: string): string {
+  const normalized = value.trim();
+  if (normalized.length <= 6) return normalized;
+  return normalized
+    .replace(/(klagen)$/i, "klage")
+    .replace(/(ansprüchen)$/i, "anspruch")
+    .replace(/(anspruechen)$/i, "anspruch")
+    .replace(/(ungen)$/i, "ung")
+    .replace(/(keiten)$/i, "keit")
+    .replace(/(?:en|ern|er|es|e|n|s)$/i, "");
+}
+
+function normalizeLegalQueryForRis(query: string): string {
+  return (query || "")
+    // Austrian RIS stores EGZPO Article 42 as "Art XLII". Users naturally
+    // type "Artikel 42 EGZPO", which otherwise becomes a mandatory search
+    // term that misses the exact Rechtssatz.
+    .replace(/\b(?:Artikel|Art\.?)\s*(\d{1,3})\s+EGZPO\b/gi, (_m, n) => `Art ${toRoman(Number(n))} EGZPO`)
+    .replace(/\bEGZPO\s+(?:Artikel|Art\.?)\s*(\d{1,3})\b/gi, (_m, n) => `EGZPO Art ${toRoman(Number(n))}`)
+    .replace(/\bSchadensersatz/gi, "Schadenersatz")
+    .replace(/\bSchadenersatzklagen\b/gi, "Schadenersatzklage");
+}
+
 export function extractRisRechtssatzKeywords(query: string): string[] {
   const seen = new Set<string>();
-  return (query || "")
+  return normalizeLegalQueryForRis(query)
     .replace(/[?!.,;:()[\]{}"“”„]/g, " ")
     .split(/\s+/)
     .map((word) => word.trim())
@@ -61,6 +103,45 @@ export function extractRisRechtssatzKeywords(query: string): string[] {
       seen.add(key);
       return true;
     });
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    const key = normalizeText(normalized);
+    if (!normalized || seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+  }
+  return out;
+}
+
+export function buildRisRechtssatzSearchQueries(query: string): string[] {
+  const normalizedQuery = normalizeLegalQueryForRis(query);
+  const keywords = extractRisRechtssatzKeywords(normalizedQuery);
+  const candidates: string[] = [];
+
+  const normalizedKeywordQuery = keywords
+    .map((word) => singularizeGermanLegalToken(word))
+    .slice(0, 8)
+    .join(" ");
+  if (normalizedKeywordQuery) candidates.push(normalizedKeywordQuery);
+
+  const explicitRs = normalizedQuery.match(/\bRS0*\d{5,}\b/i)?.[0];
+  if (explicitRs) candidates.unshift(explicitRs.toUpperCase());
+
+  const hasEgzpoArtXlii = /\b(?:Art\s*XLII|ArtXLII)\s+EGZPO\b/i.test(normalizedQuery)
+    || /\bEGZPO\s+(?:Art\s*XLII|ArtXLII)\b/i.test(normalizedQuery);
+  const mentionsDamages = /\bSchadenersatz/i.test(normalizedQuery);
+  const mentionsPreparation = /\bvorbereit/i.test(normalizedQuery);
+  if (hasEgzpoArtXlii && mentionsDamages) {
+    if (mentionsPreparation) candidates.push("Art XLII EGZPO Vorbereitung Schadenersatzklage");
+    candidates.push("Art XLII EGZPO Schadenersatzklage");
+  }
+
+  return uniqueStrings(candidates);
 }
 
 export function looksLikeExactRisRechtssatzQuery(query: string): boolean {
@@ -175,7 +256,15 @@ async function fetchTextWithTimeout(url: string, timeoutMs: number): Promise<str
 
 function overlapCount(queryKeywords: string[], text: string): number {
   const haystack = normalizeText(text);
-  return queryKeywords.filter((keyword) => haystack.includes(normalizeText(keyword))).length;
+  return queryKeywords.filter((keyword) => {
+    const normalized = normalizeText(keyword);
+    const variants = uniqueStrings([
+      normalized,
+      singularizeGermanLegalToken(normalized),
+      normalized.replace(/ae/g, "a").replace(/oe/g, "o").replace(/ue/g, "u"),
+    ]);
+    return variants.some((variant) => variant.length > 2 && haystack.includes(variant));
+  }).length;
 }
 
 export async function resolveVerifiedRisNormSource(citation: string): Promise<RisRechtssatzSource | null> {
@@ -206,25 +295,33 @@ export async function resolveVerifiedRisNormSource(citation: string): Promise<Ri
 export async function resolveExactRisRechtssatzSource(query: string): Promise<RisRechtssatzSource | null> {
   if (!looksLikeExactRisRechtssatzQuery(query)) return null;
 
-  const keywords = extractRisRechtssatzKeywords(query).slice(0, 8);
-  const suchworte = keywords.join(" ");
-  if (!suchworte) return null;
+  const keywords = extractRisRechtssatzKeywords(query).slice(0, 10);
+  const searchQueries = buildRisRechtssatzSearchQueries(query);
+  if (searchQueries.length === 0) return null;
 
-  const url = `https://data.bka.gv.at/ris/api/v2.6/Judikatur?Suchworte=${encodeURIComponent(suchworte)}&Dokumenttyp=Rechtssatz&Pagesize=3`;
-  let data: any;
-  try {
-    const text = await fetchTextWithTimeout(url, 4000);
-    if (!text) return null;
-    data = JSON.parse(text);
-  } catch {
-    return null;
+  for (const suchworte of searchQueries) {
+    const url = `https://data.bka.gv.at/ris/api/v2.6/Judikatur?Suchworte=${encodeURIComponent(suchworte)}&Dokumenttyp=Rechtssatz&Pagesize=3`;
+    let data: any;
+    try {
+      const text = await fetchTextWithTimeout(url, 4000);
+      if (!text) continue;
+      data = JSON.parse(text);
+    } catch {
+      continue;
+    }
+
+    const hits = data?.OgdSearchResult?.OgdDocumentResults?.OgdDocumentReference || [];
+    const hitArray = Array.isArray(hits) ? hits : hits ? [hits] : [];
+    if (hitArray.length !== 1) continue;
+
+    const source = await sourceFromRisRechtssatzHit(hitArray[0], keywords);
+    if (source) return source;
   }
 
-  const hits = data?.OgdSearchResult?.OgdDocumentResults?.OgdDocumentReference || [];
-  const hitArray = Array.isArray(hits) ? hits : hits ? [hits] : [];
-  if (hitArray.length !== 1) return null;
+  return null;
+}
 
-  const hit = hitArray[0];
+async function sourceFromRisRechtssatzHit(hit: any, keywords: string[]): Promise<RisRechtssatzSource | null> {
   const metadaten = hit?.Data?.Metadaten || {};
   const meta = metadaten?.Judikatur || metadaten?.JudikaturRs || metadaten?.JudikaturJustiz || metadaten || {};
   const justiz = meta?.Justiz || {};
@@ -250,14 +347,14 @@ export async function resolveExactRisRechtssatzSource(query: string): Promise<Ri
     rechtssatz = extractRisXmlAbsatz(await fetchTextWithTimeout(xmlUrl, 3000), "rechtssatz");
   }
 
+  const docRef = `RIS-Justiz RS${rsMatch[1].padStart(7, "0")}`;
   const normen = safeStr(meta?.Normen);
-  const evidenceText = [rechtssatz, normen].filter(Boolean).join(" ");
+  const evidenceText = [rechtssatz, normen, docRef, rsNummer].filter(Boolean).join(" ");
   if (overlapCount(keywords, evidenceText) < Math.min(4, keywords.length)) return null;
 
   const directUrl = normalizeRisDocumentUrl(safeStr(allgemein?.DokumentUrl) || safeStr(firstContentUrl?.Url), dokumentnummer);
   if (!directUrl || /\/(?:Ergebnis|Suchen)\.wxe/i.test(directUrl)) return null;
 
-  const docRef = `RIS-Justiz RS${rsMatch[1].padStart(7, "0")}`;
   const titleText = rechtssatz || normen || docRef;
   const title = titleText.length > 150 ? `${titleText.slice(0, 150)}...` : titleText;
 
@@ -273,6 +370,27 @@ export async function resolveExactRisRechtssatzSource(query: string): Promise<Ri
     snippet: [rechtssatz, normen].filter(Boolean).join(" | "),
     evidence_status: "verified_document",
   };
+}
+
+export function isResponsiveRisRechtssatzSource(
+  query: string,
+  source: { title?: string; snippet?: string; doc_ref?: string; pinpoint?: string; highlights?: string[]; provider?: string },
+): boolean {
+  const text = [
+    source.title || "",
+    source.snippet || "",
+    source.doc_ref || "",
+    source.pinpoint || "",
+    ...(source.highlights || []),
+  ].join(" ");
+  const isRechtssatz = /\bRS\d{5,}\b/i.test(text) || /\b(?:Rechts|Leit)satz\b/i.test(text);
+  if (!isRechtssatz) return true;
+
+  const keywords = extractRisRechtssatzKeywords(query).slice(0, 10);
+  if (keywords.length < 3) return true;
+
+  const required = Math.min(4, Math.max(3, Math.ceil(keywords.length * 0.45)));
+  return overlapCount(keywords, text) >= required;
 }
 
 export async function resolveExactRisRechtssatzSources(query: string): Promise<RisRechtssatzSource[]> {
