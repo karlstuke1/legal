@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildRisRechtssatzSearchQueries,
+  extractExplicitRsNumber,
   extractRisRechtssatzKeywords,
   isResponsiveRisRechtssatzSource,
   looksLikeExactRisRechtssatzQuery,
@@ -262,5 +263,124 @@ describe("RIS Rechtssatz exact source resolution", () => {
     }));
 
     await expect(resolveExactRisRechtssatzSource(PROMPT)).resolves.toBeNull();
+  });
+});
+
+function rsHit(rsNumber: string, docId: string) {
+  return {
+    Data: {
+      Metadaten: {
+        Technisch: { ID: docId, Applikation: "Justiz", Organ: "OGH" },
+        Allgemein: {
+          DokumentUrl: `https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=${docId}`,
+        },
+        Judikatur: {
+          Dokumenttyp: "Rechtssatz",
+          Geschaeftszahl: "11 Os 25/91",
+          Normen: "StGB §67 Abs2",
+          Entscheidungsdatum: "1991-04-23",
+          Justiz: { Gericht: "OGH", Rechtssatznummern: { item: rsNumber } },
+        },
+      },
+      Dokumentliste: {
+        ContentReference: {
+          ContentType: "MainDocument",
+          Name: "Hauptdokument",
+          Urls: {
+            ContentUrl: [
+              { DataType: "Xml", Url: `https://www.ris.bka.gv.at/Dokumente/Justiz/${docId}/${docId}.xml` },
+            ],
+          },
+        },
+      },
+    },
+  };
+}
+
+describe("explicit RS-number queries (tester meta-question regression)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // The screenshot bug: "Warum hast du RS0091861 nicht erwähnt?" has fewer
+  // than 5 keywords and zero topical overlap with the Rechtssatz text, so
+  // both gates rejected it — the model then explained its citation rules
+  // instead of answering. Identifier equality must replace those gates.
+  const META_QUESTION = "Warum hast du RS0091861 nicht erwähnt?";
+
+  it("extracts and zero-pads explicit RS numbers", () => {
+    expect(extractExplicitRsNumber(META_QUESTION)).toBe("RS0091861");
+    expect(extractExplicitRsNumber("was sagt rs34949 dazu?")).toBe("RS0034949");
+    expect(extractExplicitRsNumber(PROMPT)).toBeNull();
+  });
+
+  it("searches the zero-padded RS form first", () => {
+    expect(buildRisRechtssatzSearchQueries("was sagt rs34949?")[0]).toBe("RS0034949");
+  });
+
+  it("resolves a short meta-question to the named Rechtssatz despite failing both keyword gates", async () => {
+    expect(looksLikeExactRisRechtssatzQuery(META_QUESTION)).toBe(false);
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("data.bka.gv.at/ris/api")) {
+        return jsonResponse({
+          OgdSearchResult: { OgdDocumentResults: { OgdDocumentReference: rsHit("RS0091861", "JJR_19910423_OGH0002_0110OS00025_9100000_001") } },
+        });
+      }
+      if (url.endsWith(".xml")) {
+        return textResponse('<absatz typ="erltext" ct="rechtssatz">Der Eintritt eines Teilerfolgs im Inland genügt für die Annahme einer Inlandstat nach § 67 Abs 2 StGB.</absatz>');
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const source = await resolveExactRisRechtssatzSource(META_QUESTION);
+    expect(source).toMatchObject({
+      provider: "RIS",
+      doc_ref: "RIS-Justiz RS0091861",
+      evidence_status: "verified_document",
+      url: "https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_19910423_OGH0002_0110OS00025_9100000_001",
+    });
+    expect(source?.title).toContain("Teilerfolg");
+  });
+
+  it("accepts only the hit whose RS number equals the queried one (multiple hits allowed)", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("data.bka.gv.at/ris/api")) {
+        return jsonResponse({
+          OgdSearchResult: {
+            OgdDocumentResults: {
+              OgdDocumentReference: [
+                rsHit("RS0099999", "JJR_WRONG"),
+                rsHit("RS0091861", "JJR_RIGHT"),
+              ],
+            },
+          },
+        });
+      }
+      if (url.endsWith(".xml")) {
+        return textResponse('<absatz typ="erltext" ct="rechtssatz">Der Eintritt eines Teilerfolgs im Inland genügt.</absatz>');
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const source = await resolveExactRisRechtssatzSource(META_QUESTION);
+    expect(source?.doc_ref).toBe("RIS-Justiz RS0091861");
+    expect(source?.url).toContain("JJR_RIGHT");
+  });
+
+  it("returns null when the queried RS number is not among the hits", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("data.bka.gv.at/ris/api")) {
+        return jsonResponse({
+          OgdSearchResult: { OgdDocumentResults: { OgdDocumentReference: [rsHit("RS0011111", "JJR_OTHER")] } },
+        });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    await expect(resolveExactRisRechtssatzSource(META_QUESTION)).resolves.toBeNull();
   });
 });

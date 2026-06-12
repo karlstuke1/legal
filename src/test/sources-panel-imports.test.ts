@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
- * Runtime-crash guards for SourcesPanel.
+ * Runtime-crash guards for the sources UI components.
  *
  * Background: PR #14 shipped a crash ("Tooltip is not defined") because
  * we removed the Tooltip import when deleting the collapsed-strip branch
@@ -13,15 +13,18 @@ import { resolve } from "node:path";
  * react/jsx-no-undef rule enabled in eslint.config.js).
  *
  * These tests act as a domain-specific jsx-no-undef: for every JSX tag
- * that starts with an uppercase letter and appears in SourcesPanel.tsx,
- * there must be a matching import. Catches the same class of regression
- * fast, without needing to add an ESLint plugin.
+ * that starts with an uppercase letter and appears in the scanned files,
+ * there must be a matching import or local declaration. Catches the same
+ * class of regression fast, without needing to add an ESLint plugin.
  */
-describe("SourcesPanel — every JSX component tag has a matching import", () => {
-  const source = readFileSync(
-    resolve(__dirname, "../components/SourcesPanel.tsx"),
-    "utf8",
-  );
+
+const SCANNED_FILES = [
+  { name: "SourcesPanel", path: "../components/SourcesPanel.tsx", minTags: 5 },
+  { name: "MessageSourcesSheet", path: "../components/chat/MessageSourcesSheet.tsx", minTags: 4 },
+];
+
+function analyze(path: string) {
+  const source = readFileSync(resolve(__dirname, path), "utf8");
 
   // Gather every uppercase JSX tag actually used in JSX position.
   // Matches `<Component` and `<Component.Sub` (we key on the root
@@ -49,15 +52,26 @@ describe("SourcesPanel — every JSX component tag has a matching import", () =>
     knownIdentifiers.add(m[1]);
   }
 
-  it("has a non-empty set of JSX tags (sanity check — test isn't silently skipping everything)", () => {
-    expect(usedTags.size).toBeGreaterThan(5);
-  });
+  return { usedTags, knownIdentifiers };
+}
 
-  it("imports every uppercase JSX tag it references (regression guard for 'Tooltip is not defined')", () => {
-    // Intrinsics known to be React-native (Fragment is `<></>`, not relevant here).
-    const missing = Array.from(usedTags).filter((tag) => !knownIdentifiers.has(tag));
-    expect(missing, `SourcesPanel uses these JSX tags but doesn't import them: ${missing.join(", ")}`).toEqual([]);
+for (const file of SCANNED_FILES) {
+  describe(`${file.name} — every JSX component tag has a matching import`, () => {
+    const { usedTags, knownIdentifiers } = analyze(file.path);
+
+    it("has a non-empty set of JSX tags (sanity check — test isn't silently skipping everything)", () => {
+      expect(usedTags.size).toBeGreaterThan(file.minTags);
+    });
+
+    it("imports every uppercase JSX tag it references (regression guard for 'Tooltip is not defined')", () => {
+      const missing = Array.from(usedTags).filter((tag) => !knownIdentifiers.has(tag));
+      expect(missing, `${file.name} uses these JSX tags but doesn't import them: ${missing.join(", ")}`).toEqual([]);
+    });
   });
+}
+
+describe("SourcesPanel — Tooltip canary", () => {
+  const { knownIdentifiers } = analyze("../components/SourcesPanel.tsx");
 
   it("specifically imports Tooltip / TooltipContent / TooltipTrigger (used by ProviderGroup header)", () => {
     // Explicit canary for the exact bug that triggered the production error screen.

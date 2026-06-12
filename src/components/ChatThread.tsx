@@ -1,6 +1,7 @@
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSmoothReveal } from "@/hooks/use-smooth-reveal";
+import { renderStreamingSourceTokens, type SourceMapEntry } from "@/lib/render-source-tokens";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Scale, Search, FileText, Gavel, BookOpen, Upload, PenTool, ListChecks, FolderOpen, CheckSquare, GraduationCap, Brain, ClipboardList, AlertTriangle, RefreshCw, X } from "lucide-react";
@@ -34,6 +35,8 @@ interface ChatThreadProps {
   onSuggestionClick?: (text: string) => void;
   sourceResultsMap?: Record<string, SourceGroup[]>;
   sourceResults?: SourceGroup[];  // for streaming/panel
+  /** Numbered source map of the currently streaming response — renders [Quelle N] live */
+  streamingSourceMap?: SourceMapEntry[];
   mode?: ChatMode;
   matterName?: string;
   citationAnalysisMap?: Record<string, CitationAnalysis>;
@@ -157,6 +160,7 @@ export function ChatThread({
   onSuggestionClick,
   sourceResultsMap = {},
   sourceResults = [],
+  streamingSourceMap = [],
   mode = "research",
   matterName,
   citationAnalysisMap = {},
@@ -273,6 +277,14 @@ export function ChatThread({
         created_at: new Date().toISOString(),
       }
     : null;
+
+  // Live-render completed [Quelle N] tokens as verified citation links while
+  // streaming (the source_map arrives before the first text delta). A
+  // trailing half-typed token is held back; the typing cursor covers it.
+  const liveStreamText = useMemo(
+    () => (revealedContent ? renderStreamingSourceTokens(revealedContent, streamingSourceMap) : ""),
+    [revealedContent, streamingSourceMap],
+  );
 
 
 
@@ -427,7 +439,7 @@ export function ChatThread({
                   <div className="chat-prose max-w-none">
                     {(
                       <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                        {preprocessContent(streamingMsg.content.text, sourceResults)}
+                        {preprocessContent(liveStreamText, sourceResults)}
                       </ReactMarkdown>
                     )}
                     <span className="typing-cursor" />

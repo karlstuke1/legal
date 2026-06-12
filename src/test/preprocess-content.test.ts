@@ -458,6 +458,44 @@ Vorsatz: § 146 iVm § 147 StGB. Bei §§ 147, 148 StGB schwerer Betrug.`;
       expect(out).toMatch(/\[§ 20 AngG\]/);
     });
 
+    it("KEEPS a rendered citation link whose URL matches a verified per-message source", () => {
+      // The inline [Quelle N] renderer produces links like
+      // "([RS0034949](Dokument.wxe…))" whose URL comes from the verified
+      // source_map. Those must survive the direct-doc stripper.
+      const url = "https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_19900101_OGH0002_0010OB00001_9000000_001";
+      const sources = makeSources([
+        { title: "Rechtssatz: Verjährung …", doc_ref: "RIS-Justiz RS0034949", url },
+      ]);
+      const response = `Die Verjährung tritt nach drei Jahren ein ([RS0034949](${url})).`;
+      const out = preprocessContent(response, sources);
+      expect(out).toContain(`[RS0034949](${url})`);
+    });
+
+    it("KEEPS old persisted superscript footnote links to verified Dokument.wxe URLs", () => {
+      // Pre-inline-citation answers persisted "[¹](Dokument.wxe…)" links.
+      // They used to get stripped to a bare unlinked superscript.
+      const url = "https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_19900101_OGH0002_0010OB00001_9000000_001";
+      const sources = makeSources([
+        { title: "Rechtssatz: Verjährung …", doc_ref: "RS0034949", url },
+      ]);
+      const response = `Die Verjährung tritt nach drei Jahren ein [¹](${url}).`;
+      const out = preprocessContent(response, sources);
+      expect(out).toContain(`[¹](${url})`);
+    });
+
+    it("still strips a Dokument.wxe link when the URL is NOT among the message's sources", () => {
+      const sources = makeSources([
+        {
+          title: "Rechtssatz: Verjährung …",
+          doc_ref: "RS0034949",
+          url: "https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_REAL",
+        },
+      ]);
+      const response = "Vgl. [RS0099999](https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_FAKE).";
+      const out = preprocessContent(response, sources);
+      expect(out).not.toContain("JJR_FAKE");
+    });
+
     it("does NOT scrub non-RIS direct-doc URLs (e.g. EUR-Lex)", () => {
       const response = "[Art. 6 DSGVO](https://eur-lex.europa.eu/legal-content/DE/TXT/?uri=CELEX:32016R0679).";
       const out = preprocessContent(response, makeSources([]));

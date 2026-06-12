@@ -1,22 +1,13 @@
 import { useState, useMemo } from "react";
-import { ExternalLink, ChevronRight, Clock, Search, Loader2, AlertCircle, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ExternalLink, ChevronRight, Search, AlertCircle, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import type { RetrievalResult } from "@/lib/retrieval";
 import { formatSourceLabel } from "@/lib/ris-url-utils";
-import { AnimatePresence, motion } from "framer-motion";
-import { useIsMobile } from "@/hooks/use-mobile";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { normalizeSourceGroups } from "@/lib/source-groups";
 
 interface SourcesPanelProps {
   results: { provider: string; results: RetrievalResult[]; latencyMs?: number }[];
@@ -96,13 +87,14 @@ const JURISDICTION_CHIPS = [
   { key: "EU", label: "EU", providers: ["EURLEX", "CURIA"] },
 ];
 
-export function SourcesPanel({ results, isLoading }: SourcesPanelProps) {
-  const isMobile = useIsMobile();
+/**
+ * The sources list (filter bar + provider groups). Used inside the
+ * per-answer "Quellen anzeigen" sheet — the former fixed right-side panel
+ * wrapper is gone since citations are linked inline in the answer text.
+ */
+export function SourcesPanelBody({ results, isLoading }: SourcesPanelProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [jurisdictionFilter, setJurisdictionFilter] = useState<string | null>(null);
-  // Harvey-style: on desktop the panel is always visible; on mobile it
-  // opens as a bottom drawer triggered by the floating source-count FAB.
-  const [mobileOpen, setMobileOpen] = useState(false);
 
   const normalizedResults = useMemo(() => normalizeSourceGroups(results), [results]);
   const totalResults = normalizedResults.reduce((sum, r) => sum + (r.results?.length ?? 0), 0);
@@ -134,50 +126,43 @@ export function SourcesPanel({ results, isLoading }: SourcesPanelProps) {
     return filtered;
   }, [normalizedResults, searchQuery, jurisdictionFilter]);
 
-  // Harvey-style: never disappear on desktop. On mobile we still hide the
-  // floating-count button when there's nothing to count (no chip-with-zero
-  // noise); the desktop side panel stays visible with an empty state.
   const hasNoResults = totalResults === 0 && !isLoading;
-  if (isMobile && hasNoResults) return null;
 
-  const filterBar = (
-    <div className="space-y-2 px-3 pb-3 border-b border-border/20">
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/40" />
-        <Input
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          placeholder="Quellen durchsuchen…"
-          className="h-7 pl-7 text-[11px] bg-muted/20 border-border/30 rounded-lg"
-        />
-        {searchQuery && (
-          <button onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2">
-            <X className="h-3 w-3 text-muted-foreground/40 hover:text-foreground" />
-          </button>
-        )}
-      </div>
-      <div className="flex gap-1">
-        {JURISDICTION_CHIPS.map(chip => (
-          <button
-            key={chip.key}
-            onClick={() => setJurisdictionFilter(jurisdictionFilter === chip.key ? null : chip.key)}
-            className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
-              jurisdictionFilter === chip.key
-                ? "bg-foreground/10 text-foreground"
-                : "bg-muted/20 text-muted-foreground/50 hover:text-muted-foreground/70"
-            }`}
-          >
-            {chip.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  // Shared body rendered on both desktop and mobile.
-  const panelBody = (
+  return (
     <>
-      <div className="pt-3">{filterBar}</div>
+      <div className="pt-3">
+        <div className="space-y-2 px-3 pb-3 border-b border-border/20">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/40" />
+            <Input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Quellen durchsuchen…"
+              className="h-7 pl-7 text-[11px] bg-muted/20 border-border/30 rounded-lg"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2">
+                <X className="h-3 w-3 text-muted-foreground/40 hover:text-foreground" />
+              </button>
+            )}
+          </div>
+          <div className="flex gap-1">
+            {JURISDICTION_CHIPS.map(chip => (
+              <button
+                key={chip.key}
+                onClick={() => setJurisdictionFilter(jurisdictionFilter === chip.key ? null : chip.key)}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+                  jurisdictionFilter === chip.key
+                    ? "bg-foreground/10 text-foreground"
+                    : "bg-muted/20 text-muted-foreground/50 hover:text-muted-foreground/70"
+                }`}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-5">
           {isLoading && totalResults === 0 && (
@@ -216,96 +201,6 @@ export function SourcesPanel({ results, isLoading }: SourcesPanelProps) {
       </ScrollArea>
     </>
   );
-
-  // Mobile: floating count button + bottom-sheet drawer, internal state.
-  if (isMobile) {
-    return (
-      <>
-        <button
-          onClick={() => setMobileOpen(true)}
-          className="fixed bottom-[calc(env(safe-area-inset-bottom)+7rem)] right-4 z-30 flex items-center gap-1.5 rounded-full bg-card border border-border/50 shadow-lg px-3 py-2 min-h-[44px]"
-        >
-          {isLoading ? (
-            <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin" />
-          ) : (
-            <Search className="h-3.5 w-3.5 text-muted-foreground" />
-          )}
-          <span className="text-[12px] font-medium text-foreground/70">{totalResults}</span>
-        </button>
-        <Drawer open={mobileOpen} onOpenChange={setMobileOpen}>
-          <DrawerContent className="max-h-[75vh]">
-            <DrawerHeader className="pb-2">
-              <DrawerTitle className="text-[14px] font-medium flex items-center gap-2">
-                <Search className="h-4 w-4 text-muted-foreground/50" />
-                Quellen
-                <span className="text-[12px] text-muted-foreground/40 tabular-nums ml-auto">{totalResults} Treffer</span>
-              </DrawerTitle>
-            </DrawerHeader>
-            <div className="flex flex-col flex-1 min-h-0">
-              {panelBody}
-            </div>
-          </DrawerContent>
-        </Drawer>
-      </>
-    );
-  }
-
-  // Desktop: always-visible fixed-width side panel (Harvey-style).
-  // sticky top-0 + h-screen keeps the panel anchored to the viewport even
-  // when an ancestor scrolls — without that, scrolling the chat scrolls
-  // the sources away too. min-h-0 on the wrapping flex makes sure the
-  // inner ScrollArea can shrink properly.
-  return (
-    <aside className="border-l border-border/30 bg-background/95 backdrop-blur-md shrink-0 flex flex-col overflow-hidden w-[340px] lg:w-[380px] sticky top-0 self-start h-screen min-h-0">
-      <div className="h-12 flex items-center gap-2.5 px-4 border-b border-border/30 shrink-0">
-        {isLoading ? (
-          <Loader2 className="h-3.5 w-3.5 text-muted-foreground/50 animate-spin shrink-0" />
-        ) : (
-          <Search className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
-        )}
-        <span className="text-[13px] font-medium text-foreground/70 flex-1 tracking-tight">
-          {isLoading ? "Quellen werden durchsucht…" : "Quellen"}
-        </span>
-        {!isLoading && (
-          <span className="text-[11px] text-muted-foreground/40 tabular-nums">{totalResults}</span>
-        )}
-      </div>
-      <div className="flex-1 min-h-0 flex flex-col">{panelBody}</div>
-    </aside>
-  );
-}
-
-function normalizeSourceGroups(
-  groups: { provider: string; results: RetrievalResult[]; latencyMs?: number }[],
-) {
-  const byProvider = new Map<string, { provider: string; results: RetrievalResult[]; latencyMs?: number }>();
-  const seen = new Set<string>();
-
-  for (const group of groups) {
-    for (const result of group.results || []) {
-      const provider = result.provider || group.provider;
-      const dedupeKey = [
-        provider,
-        result.url || "",
-        result.doc_ref || "",
-        result.title || "",
-      ].join("::").toLowerCase();
-
-      if (seen.has(dedupeKey)) continue;
-      seen.add(dedupeKey);
-
-      const existing = byProvider.get(provider) || {
-        provider,
-        results: [],
-        latencyMs: group.latencyMs,
-      };
-      existing.results.push(result);
-      existing.latencyMs = Math.max(existing.latencyMs || 0, group.latencyMs || 0);
-      byProvider.set(provider, existing);
-    }
-  }
-
-  return Array.from(byProvider.values());
 }
 
 function ProviderGroup({
@@ -392,6 +287,13 @@ function SourceCard({ result: r, index: i }: { result: RetrievalResult; index: n
           className="rounded-xl border border-border/30 bg-card/50 p-3.5 text-xs space-y-2 hover:bg-card hover:shadow-md hover:shadow-foreground/[0.02] hover:border-border/50 transition-all duration-300 group cursor-default overflow-hidden min-w-0"
         >
           <div className="flex items-start justify-between gap-2 min-w-0">
+            {/* Q{n} = the [Quelle N] number this source carries in the
+                answer's inline citations — lets users map text ↔ source. */}
+            {typeof r.source_index === "number" && (
+              <span className="shrink-0 mt-px rounded-md bg-foreground/[0.06] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-foreground/60 tabular-nums">
+                Q{r.source_index}
+              </span>
+            )}
             {/* break-all + overflow-wrap:anywhere force long unspaced
                 citation strings like "12Os26/70,9Os36/76,..." to wrap
                 instead of overflowing the card horizontally. */}

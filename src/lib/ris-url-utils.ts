@@ -696,3 +696,65 @@ export function formatSourceLabel(docRef: string | undefined | null, title?: str
 
   return ref;
 }
+
+/**
+ * Format a verified source-map entry into the citation label that replaces a
+ * `[Quelle N]` token inline in the answer text. Unlike formatSourceLabel
+ * (source chips), this favors the shortest legally-citable identifier:
+ *
+ *   doc_ref "RIS-Justiz RS0034949"  → "RS0034949"
+ *   doc_ref "6 Ob 140/18h"          → "OGH 6 Ob 140/18h"
+ *   doc_ref "§ 75 STGB"             → "§ 75 StGB"
+ *   doc_ref "10002296"              → "StGB"
+ *   no doc_ref, title "Rechtssatz: …" → truncated title without the prefix
+ *
+ * The result is plain text destined for a markdown link label — never a URL,
+ * never square brackets, max 60 chars.
+ */
+export function formatSourceCitationLabel(entry: {
+  doc_ref?: string | null;
+  title?: string | null;
+  provider?: string | null;
+}): string {
+  const ref = (entry.doc_ref || "").trim();
+  const title = (entry.title || "").trim();
+  let label = "";
+
+  // "RIS-Justiz RS0034949" (backend Rechtssatz seeds) or bare RS number.
+  const rs = ref.match(/^(?:RIS-Justiz\s+)?(RS\d{5,})\b/i);
+  if (rs) label = rs[1].toUpperCase();
+
+  // Spaced Aktenzeichen "6 Ob 140/18h" — prefix the court. A court named at
+  // the start of the title wins over the senate-code heuristic.
+  if (!label) {
+    const docket = ref.match(/^(\d{1,3})\s+([A-Za-z]{1,3})\s+(\d+\/\d{2,4}[a-z]?)$/);
+    if (docket) {
+      const [, num, senate, suffix] = docket;
+      const courtFromTitle = title.match(/^(OGH|VwGH|VfGH|OLG|LG|BVwG|BFG)\b/)?.[1];
+      const court = courtFromTitle ? `${courtFromTitle} `
+        : OGH_SENATE_CODES.has(senate.toLowerCase()) ? "OGH "
+        : VWGH_SENATE_CODES.has(senate.toLowerCase()) ? "VwGH "
+        : "";
+      const canonSenate = senate.charAt(0).toUpperCase() + senate.slice(1).toLowerCase();
+      label = `${court}${num} ${canonSenate} ${suffix}`;
+    }
+  }
+
+  // Norm reference "§ 75 STGB" (backend norm seeds upper-case the law) —
+  // canonicalise the law abbreviation via the display-name map.
+  if (!label) {
+    const norm = ref.match(/^(§{1,2}\s*\d+[a-z]?(?:\s+Abs\.?\s*\d+[a-z]?)?)\s+([\wÄÖÜäöüß-]+)$/);
+    if (norm) label = `${norm[1]} ${prettyLawName(norm[2].toLowerCase())}`;
+  }
+
+  if (!label) {
+    // Gesetzesnummern, compressed AZ, and the title/"Quelle" fallbacks.
+    const cleanedTitle = title.replace(/^(?:Rechts|Leit)satz:\s*/i, "");
+    label = formatSourceLabel(ref, cleanedTitle);
+  }
+
+  label = label.replace(/[[\]]/g, "").replace(/\s+/g, " ").trim();
+  if (!label) label = "Quelle";
+  if (label.length > 60) label = `${label.slice(0, 57).trimEnd()}…`;
+  return label;
+}

@@ -131,6 +131,21 @@ describe("buildCitationRuleBlock", () => {
     expect(rules).toContain("wörtlich oder nahezu wörtlich");
     expect(rules).toContain("KEINE RS-Nummer");
   });
+
+  it("tells the model that [Quelle N] tokens are displayed as full citations", () => {
+    // Without this, the model believes the user never sees a real citation
+    // and produces meta-answers about its own rules (tester screenshot bug).
+    const rules = buildCitationRuleBlock();
+    expect(rules).toContain("ANZEIGE BEIM NUTZER");
+    expect(rules).toContain("automatisch als vollständige Zitate");
+  });
+
+  it("forbids explaining the citation rules in the answer text", () => {
+    const rules = buildCitationRuleBlock();
+    expect(rules).toContain("META-REGEL");
+    expect(rules).toMatch(/Erkläre oder erwähne diese Zitierregeln NIEMALS/);
+    expect(rules).toContain("beantworte die Frage INHALTLICH");
+  });
 });
 
 describe("parseLegacySourceContext", () => {

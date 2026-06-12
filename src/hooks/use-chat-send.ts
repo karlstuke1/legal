@@ -228,10 +228,36 @@ function sourceMapToGroups(sourceMap: SourceMapEntry[]): SourceGroup[] {
       provider,
       snippet: "",
       evidence_status: source.evidence_status || "verified_document",
+      source_index: source.index,
     };
     grouped.set(provider, [...(grouped.get(provider) || []), result]);
   }
   return Array.from(grouped, ([provider, results]) => ({ provider, results, latencyMs: 0 }));
+}
+
+/**
+ * Back-fill `source_index` ([Quelle N] numbering) onto retrieval/tool results
+ * by URL match. Needed because dedupeSourceGroups keeps the FIRST copy of a
+ * URL — usually the retrieval copy, which carries no index — while the
+ * numbering lives on the source_map copy that gets dropped.
+ */
+function annotateSourceIndices(groups: SourceGroup[], sourceMap: SourceMapEntry[]): SourceGroup[] {
+  if (!sourceMap?.length) return groups;
+  const indexByUrl = new Map<string, number>();
+  for (const source of sourceMap) {
+    if (source?.url && typeof source.index === "number") {
+      indexByUrl.set(source.url.toLowerCase(), source.index);
+    }
+  }
+  if (!indexByUrl.size) return groups;
+  return groups.map(group => ({
+    ...group,
+    results: group.results.map(result => {
+      if (typeof result.source_index === "number") return result;
+      const index = result.url ? indexByUrl.get(result.url.toLowerCase()) : undefined;
+      return typeof index === "number" ? { ...result, source_index: index } : result;
+    }),
+  }));
 }
 
 function dedupeSourceGroups(groups: SourceGroup[]): SourceGroup[] {
@@ -492,6 +518,7 @@ export interface UseChatSendResult {
   setSourceResults: React.Dispatch<React.SetStateAction<{ provider: string; results: RetrievalResult[]; latencyMs?: number }[]>>;
   sourceResultsMap: Record<string, { provider: string; results: RetrievalResult[] }[]>;
   setSourceResultsMap: React.Dispatch<React.SetStateAction<Record<string, { provider: string; results: RetrievalResult[] }[]>>>;
+  streamingSourceMap: SourceMapEntry[];
   isSearchingSources: boolean;
   citationAnalysisMap: Record<string, CitationAnalysis>;
   documentDetectionMap: Record<string, DocumentDetection>;
@@ -531,6 +558,9 @@ export function useChatSend(
   const [sourceResultsMap, setSourceResultsMap] = useState<
     Record<string, { provider: string; results: RetrievalResult[] }[]>
   >({});
+  // The server's numbered source map for the CURRENTLY streaming response —
+  // lets the streaming view render [Quelle N] tokens as live citation links.
+  const [streamingSourceMap, setStreamingSourceMap] = useState<SourceMapEntry[]>([]);
   const [isSearchingSources, setIsSearchingSources] = useState(false);
   const [citationAnalysisMap, setCitationAnalysisMap] = useState<Record<string, CitationAnalysis>>({});
   const [documentDetectionMap, setDocumentDetectionMap] = useState<Record<string, DocumentDetection>>({});
@@ -541,6 +571,7 @@ export function useChatSend(
   const resetState = useCallback(() => {
     setSourceResults([]);
     setSourceResultsMap({});
+    setStreamingSourceMap([]);
     setCitationAnalysisMap({});
     setDocumentDetectionMap({});
     setThinkingSteps([]);
@@ -590,6 +621,7 @@ export function useChatSend(
 
     setIsStreaming(false);
     setIsThinking(false);
+    setStreamingSourceMap([]);
     setThinkingSteps(prev => prev.map(s => ({ ...s, status: "done" as const })));
   }, [activeChatId]);
 
@@ -872,6 +904,7 @@ export function useChatSend(
 
       setIsStreaming(true);
       setStreamingContent("");
+      setStreamingSourceMap([]);
       let fullResponse = "";
       let thinkingDone = false;
       const thinkingStartedAt = Date.now();
@@ -1011,6 +1044,14 @@ export function useChatSend(
             signal: controller.signal,
             onSourceMap: (sources) => {
               serverSourceMap = sources;
+              if (activeChatIdRef.current === currentChatId) {
+                setStreamingSourceMap(sources);
+                // Expose the numbered sources to the streaming view right
+                // away: preprocessContent needs them in sourceResults so the
+                // live-rendered citation links survive the direct-doc
+                // stripper. onDone replaces this with the final merged set.
+                setSourceResults(prev => dedupeSourceGroups([...prev, ...sourceMapToGroups(sources)]));
+              }
               console.log(`[chat] Received source_map with ${sources.length} entries`);
             },
             onModeSwitch: (from, to, label) => {
@@ -1137,6 +1178,18 @@ export function useChatSend(
                       snippet: s.snippet || "",
                       date: s.date || "",
                     })),
+                    // Server-seeded numbered sources (e.g. exact RIS
+                    // Rechtssätze) exist only in the source_map. Their
+                    // doc_refs must count as verified, or the citation
+                    // engine flags our own rendered labels as fabricated.
+                    ...serverSourceMap.map(s => ({
+                      provider: s.provider || "SOURCE_MAP",
+                      title: s.title || "",
+                      url: s.url || "",
+                      doc_ref: s.doc_ref || "",
+                      snippet: "",
+                      date: "",
+                    })),
                   ];
                   const preAnalysis = analyzeCitations(initialResponse, sourceContext, allSourcesForScrub);
                   // Pass ALL hard-type citations (case_ref / rs_number /
@@ -1185,11 +1238,24 @@ export function useChatSend(
                   console.error("[scrub-citations] Pre-persist pipeline failed (non-critical):", e);
                 }
               }
-              const allSourceGroups = dedupeSourceGroups([
-                ...retrievalResults,
-                ...(toolFoundSources.length > 0 ? [{ provider: "TOOL", results: toolFoundSources, latencyMs: 0 }] : []),
-                ...sourceMapToGroups(serverSourceMap),
-              ]);
+              const allSourceGroups = annotateSourceIndices(
+                dedupeSourceGroups([
+                  ...retrievalResults,
+                  ...(toolFoundSources.length > 0 ? [{ provider: "TOOL", results: toolFoundSources, latencyMs: 0 }] : []),
+                  ...sourceMapToGroups(serverSourceMap),
+                ]),
+                serverSourceMap,
+              );
+              // Keep the conversation-level source state in sync with the
+              // turn that just finished. Without this, follow-up answers'
+              // sources (especially server-seeded ones that never go
+              // through frontend retrieval) exist only in sourceResultsMap
+              // and consumers of sourceResults (export, streaming
+              // preprocessing) keep showing the previous turn.
+              if (activeChatIdRef.current === currentChatId) {
+                setSourceResults(allSourceGroups);
+                setStreamingSourceMap([]);
+              }
               await draftSaveChain;
               let assistantMsg: ChatMessage | null = null;
               if (privacyNoStore) {
@@ -1279,6 +1345,17 @@ export function useChatSend(
                       snippet: s.snippet || "",
                       date: s.date || "",
                     })),
+                    // Same as in the scrub stage: the rendered answer now
+                    // contains the source_map's doc_refs as visible labels —
+                    // they must verify against their own sources.
+                    ...serverSourceMap.map(s => ({
+                      provider: s.provider || "SOURCE_MAP",
+                      title: s.title || "",
+                      url: s.url || "",
+                      doc_ref: s.doc_ref || "",
+                      snippet: "",
+                      date: "",
+                    })),
                   ];
                   const analysis = analyzeCitations(responseToPersist, sourceContext, allSources);
                   if (assistantMsg) {
@@ -1304,6 +1381,7 @@ export function useChatSend(
               setIsThinking(false);
               setIsStreaming(false);
               setStreamingContent("");
+              setStreamingSourceMap([]);
 
               // Detect session expired — prompt re-login
               if (/Sitzung abgelaufen|erneut an/i.test(error)) {
@@ -1370,6 +1448,7 @@ export function useChatSend(
           setIsThinking(false);
           setIsStreaming(false);
           setStreamingContent("");
+          setStreamingSourceMap([]);
           if (savedInterruptedDraft) {
             toast({
               title: "Antwort unterbrochen",
@@ -1396,6 +1475,7 @@ export function useChatSend(
     setSourceResults,
     sourceResultsMap,
     setSourceResultsMap,
+    streamingSourceMap,
     isSearchingSources,
     citationAnalysisMap,
     documentDetectionMap,

@@ -6,7 +6,6 @@ import { supabase } from "@/lib/supabase-safe";
 import { Composer } from "@/components/Composer";
 import { ChatThread } from "@/components/ChatThread";
 import { DraftPhaseTracker, MAX_ITERATIONS } from "@/components/ChatThread";
-import { SourcesPanel } from "@/components/SourcesPanel";
 import { DocumentEditor } from "@/components/chat/DocumentEditor";
 import { ChatToolbarExport } from "@/components/chat/ChatToolbarExport";
 import { ChatBanners } from "@/components/chat/ChatBanners";
@@ -59,7 +58,7 @@ export default function ChatPage() {
     thinkingSteps, isThinking,
     sourceResults, setSourceResults,
     sourceResultsMap, setSourceResultsMap,
-    isSearchingSources,
+    streamingSourceMap,
     citationAnalysisMap,
     documentDetectionMap,
     activeChatId, setActiveChatId,
@@ -344,6 +343,7 @@ export default function ChatPage() {
           } : undefined}
           sourceResults={sourceResults}
           sourceResultsMap={sourceResultsMap}
+          streamingSourceMap={streamingSourceMap}
           mode={filters.mode}
           matterName={currentMatter?.name}
           citationAnalysisMap={citationAnalysisMap}
@@ -377,12 +377,9 @@ export default function ChatPage() {
           modeLocked={messages.length > 0}
         />
       </div>
-      {filters.mode !== "exam" && messages.length > 0 && (
-        <SourcesPanel
-          results={sourceResults}
-          isLoading={isSearchingSources}
-        />
-      )}
+      {/* Sources live per-answer now: inline citation links in the text plus
+          the "Quellen (N)" sheet in each answer's action bar — the fixed
+          right-side SourcesPanel is gone. */}
       <DocumentEditor
         content={editorContent}
         title={editorTitle}

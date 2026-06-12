@@ -9,6 +9,7 @@ import type { ChatMessage, ChatMode } from "@/lib/types";
 import type { RetrievalResult } from "@/lib/retrieval";
 import type { FeedbackRating } from "@/lib/feedback-api";
 import { mdComponents, preprocessContent } from "./markdown-config";
+import { MessageSourcesSheet } from "./MessageSourcesSheet";
 
 import { InteractiveQuestions, parseInteractiveQuestions } from "./InteractiveQuestions";
 
@@ -137,13 +138,14 @@ function DocumentCard({ detection, content, onOpenEditor, showPreview, onToggleP
   );
 }
 
-/* ── Action bar (copy, regenerate, feedback) ── */
+/* ── Action bar (copy, regenerate, sources, feedback) ── */
 function MessageActions({
-  msg, onRegenerate, isLastMessage, feedbackRating, onFeedbackChange, isPinned, onTogglePin,
+  msg, onRegenerate, isLastMessage, feedbackRating, onFeedbackChange, isPinned, onTogglePin, sourceResults,
 }: {
   msg: ChatMessage; onRegenerate?: () => void; isLastMessage: boolean;
   feedbackRating?: FeedbackRating; onFeedbackChange: (id: string, r: FeedbackRating) => void;
   isPinned?: boolean; onTogglePin?: (messageId: string) => void;
+  sourceResults?: SourceGroup[];
 }) {
   const isTemporaryMessage = msg.id.startsWith("__");
   const [copied, setCopied] = useState(false);
@@ -176,6 +178,9 @@ function MessageActions({
         <Button variant="ghost" size="sm" className={`h-7 w-7 p-0 rounded-lg transition-all duration-200 ${isPinned ? "text-amber-600 bg-amber-500/10 hover:bg-amber-500/15" : "text-muted-foreground/40 hover:text-amber-600 hover:bg-muted/40"}`} onClick={() => onTogglePin(msg.id)} title={isPinned ? "Entpinnen" : "Pinnen"}>
           {isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
         </Button>
+      )}
+      {sourceResults && sourceResults.length > 0 && (
+        <MessageSourcesSheet results={sourceResults} />
       )}
       {!isTemporaryMessage && <div className="ml-auto flex items-center gap-0">
         <Button
@@ -315,12 +320,13 @@ export const MessageBubble = React.memo(function MessageBubble({
               onFeedbackChange={onFeedbackChange}
               isPinned={isPinned}
               onTogglePin={onTogglePin}
+              sourceResults={sourceResults}
             />
           )}
 
-          {/* Sources are shown only inline (as clickable citations in the
-              text) and in the right-side SourcesPanel — no per-message
-              footer list, since it duplicates the sidebar. */}
+          {/* Sources are linked inline (verified citation labels in the
+              text); the full per-answer list lives behind the
+              "Quellen (N)" sheet in the action bar. */}
 
           {/* Risk report for document review */}
           {isComplete && isLastAssistant && mode === "document_review" && msg.content.text.length > 200 && (

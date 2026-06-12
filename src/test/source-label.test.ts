@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findSourceUrl, formatSourceLabel } from "@/lib/ris-url-utils";
+import { findSourceUrl, formatSourceLabel, formatSourceCitationLabel } from "@/lib/ris-url-utils";
 
 describe("findSourceUrl — strict AZ matching", () => {
   const docWithRS = {
@@ -110,5 +110,57 @@ describe("formatSourceLabel", () => {
   it("falls back to title for Gesetzesnummer that's not in the display map", () => {
     // A fake 7-digit number not in LAW_GESETZESNUMMER should fall back to title.
     expect(formatSourceLabel("9999999", "Some Law Title")).toBe("Some Law Title");
+  });
+});
+
+describe("formatSourceCitationLabel — inline [Quelle N] labels", () => {
+  it("strips the RIS-Justiz prefix from Rechtssatz doc_refs", () => {
+    expect(formatSourceCitationLabel({ doc_ref: "RIS-Justiz RS0034949" })).toBe("RS0034949");
+    expect(formatSourceCitationLabel({ doc_ref: "ris-justiz rs0034949" })).toBe("RS0034949");
+  });
+
+  it("passes bare RS numbers through uppercased", () => {
+    expect(formatSourceCitationLabel({ doc_ref: "RS0094010" })).toBe("RS0094010");
+  });
+
+  it("court-prefixes a spaced OGH docket", () => {
+    expect(formatSourceCitationLabel({ doc_ref: "6 Ob 140/18h" })).toBe("OGH 6 Ob 140/18h");
+  });
+
+  it("prefers the court named at the start of the title", () => {
+    expect(formatSourceCitationLabel({ doc_ref: "6 Ob 140/18h", title: "VfGH 6 Ob 140/18h — irgendwas" }))
+      .toBe("VfGH 6 Ob 140/18h");
+  });
+
+  it("canonicalises the law abbreviation of norm seeds", () => {
+    // Backend norm seeds upper-case the abbreviation ("§ 75 STGB").
+    expect(formatSourceCitationLabel({ doc_ref: "§ 75 STGB" })).toBe("§ 75 StGB");
+    expect(formatSourceCitationLabel({ doc_ref: "§ 16 MRG" })).toBe("§ 16 MRG");
+  });
+
+  it("reverse-looks Gesetzesnummern via formatSourceLabel", () => {
+    expect(formatSourceCitationLabel({ doc_ref: "10002531" })).toBe("MRG");
+  });
+
+  it("spaces compressed Aktenzeichen via formatSourceLabel", () => {
+    expect(formatSourceCitationLabel({ doc_ref: "12Os119/06a" })).toBe("OGH 12 Os 119/06a");
+  });
+
+  it("falls back to the title without the Rechtssatz prefix, truncated to 60 chars", () => {
+    const title = "Rechtssatz: " + "Der Eintritt eines Teilerfolgs im Inland genügt für die Annahme einer Inlandstat nach § 67 Abs 2 StGB.";
+    const label = formatSourceCitationLabel({ doc_ref: "", title });
+    expect(label.startsWith("Der Eintritt eines Teilerfolgs")).toBe(true);
+    expect(label).not.toContain("Rechtssatz:");
+    expect(label.length).toBeLessThanOrEqual(60);
+    expect(label.endsWith("…")).toBe(true);
+  });
+
+  it("sanitizes square brackets out of the label (markdown link safety)", () => {
+    expect(formatSourceCitationLabel({ doc_ref: "", title: "Titel [PDF] mit Klammern" }))
+      .toBe("Titel PDF mit Klammern");
+  });
+
+  it('falls back to "Quelle" when nothing usable exists', () => {
+    expect(formatSourceCitationLabel({})).toBe("Quelle");
   });
 });

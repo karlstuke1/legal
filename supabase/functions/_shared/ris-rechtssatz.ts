@@ -118,6 +118,16 @@ function uniqueStrings(values: string[]): string[] {
   return out;
 }
 
+/**
+ * Extract an explicitly named Rechtssatz number from a user query,
+ * normalized to the canonical zero-padded RIS form ("RS0091861").
+ */
+export function extractExplicitRsNumber(query: string): string | null {
+  const match = (query || "").match(/\bRS0*(\d{5,})\b/i);
+  if (!match) return null;
+  return `RS${match[1].padStart(7, "0")}`;
+}
+
 export function buildRisRechtssatzSearchQueries(query: string): string[] {
   const normalizedQuery = normalizeLegalQueryForRis(query);
   const keywords = extractRisRechtssatzKeywords(normalizedQuery);
@@ -131,6 +141,10 @@ export function buildRisRechtssatzSearchQueries(query: string): string[] {
 
   const explicitRs = normalizedQuery.match(/\bRS0*\d{5,}\b/i)?.[0];
   if (explicitRs) candidates.unshift(explicitRs.toUpperCase());
+  // RIS indexes the zero-padded form — search it first when it differs
+  // from what the user typed (e.g. "RS34949" → "RS0034949").
+  const paddedRs = extractExplicitRsNumber(normalizedQuery);
+  if (paddedRs && paddedRs !== explicitRs?.toUpperCase()) candidates.unshift(paddedRs);
 
   const hasEgzpoArtXlii = /\b(?:Art\s*XLII|ArtXLII)\s+EGZPO\b/i.test(normalizedQuery)
     || /\bEGZPO\s+(?:Art\s*XLII|ArtXLII)\b/i.test(normalizedQuery);
@@ -293,7 +307,11 @@ export async function resolveVerifiedRisNormSource(citation: string): Promise<Ri
 }
 
 export async function resolveExactRisRechtssatzSource(query: string): Promise<RisRechtssatzSource | null> {
-  if (!looksLikeExactRisRechtssatzQuery(query)) return null;
+  // A query that literally names a Rechtssatz ("Warum fehlt RS0091861?")
+  // bypasses the topical gates: identifier equality is checked instead of
+  // keyword overlap, so even short meta-questions resolve their RS.
+  const explicitRs = extractExplicitRsNumber(query);
+  if (!explicitRs && !looksLikeExactRisRechtssatzQuery(query)) return null;
 
   const keywords = extractRisRechtssatzKeywords(query).slice(0, 10);
   const searchQueries = buildRisRechtssatzSearchQueries(query);
@@ -312,6 +330,17 @@ export async function resolveExactRisRechtssatzSource(query: string): Promise<Ri
 
     const hits = data?.OgdSearchResult?.OgdDocumentResults?.OgdDocumentReference || [];
     const hitArray = Array.isArray(hits) ? hits : hits ? [hits] : [];
+
+    if (explicitRs) {
+      // Several hits may match the search term — accept exactly the one
+      // whose own RS number equals the queried identifier.
+      for (const hit of hitArray) {
+        const source = await sourceFromRisRechtssatzHit(hit, keywords, { requireRs: explicitRs });
+        if (source) return source;
+      }
+      continue;
+    }
+
     if (hitArray.length !== 1) continue;
 
     const source = await sourceFromRisRechtssatzHit(hitArray[0], keywords);
@@ -321,7 +350,11 @@ export async function resolveExactRisRechtssatzSource(query: string): Promise<Ri
   return null;
 }
 
-async function sourceFromRisRechtssatzHit(hit: any, keywords: string[]): Promise<RisRechtssatzSource | null> {
+async function sourceFromRisRechtssatzHit(
+  hit: any,
+  keywords: string[],
+  opts: { requireRs?: string } = {},
+): Promise<RisRechtssatzSource | null> {
   const metadaten = hit?.Data?.Metadaten || {};
   const meta = metadaten?.Judikatur || metadaten?.JudikaturRs || metadaten?.JudikaturJustiz || metadaten || {};
   const justiz = meta?.Justiz || {};
@@ -341,16 +374,22 @@ async function sourceFromRisRechtssatzHit(hit: any, keywords: string[]): Promise
   const rsMatch = rsNummer.match(/RS0*(\d{5,})/i);
   if (!rsMatch || !dokumentnummer) return null;
 
+  const normalizedRs = `RS${rsMatch[1].padStart(7, "0")}`;
+  // Explicit-RS mode: the user named this exact Rechtssatz, so identifier
+  // equality is the acceptance criterion — a meta-question ("warum wurde
+  // … nicht erwähnt?") shares no topical keywords with the RS text.
+  if (opts.requireRs && normalizedRs !== opts.requireRs) return null;
+
   const xmlUrl = safeStr(xmlContentUrl?.Url);
   let rechtssatz = safeStr(meta?.RechtssatzText || meta?.Spruch || meta?.Kurztext);
   if (!rechtssatz && xmlUrl) {
     rechtssatz = extractRisXmlAbsatz(await fetchTextWithTimeout(xmlUrl, 3000), "rechtssatz");
   }
 
-  const docRef = `RIS-Justiz RS${rsMatch[1].padStart(7, "0")}`;
+  const docRef = `RIS-Justiz ${normalizedRs}`;
   const normen = safeStr(meta?.Normen);
   const evidenceText = [rechtssatz, normen, docRef, rsNummer].filter(Boolean).join(" ");
-  if (overlapCount(keywords, evidenceText) < Math.min(4, keywords.length)) return null;
+  if (!opts.requireRs && overlapCount(keywords, evidenceText) < Math.min(4, keywords.length)) return null;
 
   const directUrl = normalizeRisDocumentUrl(safeStr(allgemein?.DokumentUrl) || safeStr(firstContentUrl?.Url), dokumentnummer);
   if (!directUrl || /\/(?:Ergebnis|Suchen)\.wxe/i.test(directUrl)) return null;

@@ -20,6 +20,9 @@ export interface RetrievalResult {
   // rankScore so the LLM-judged top-K wins over heuristic-only ranking.
   relevance?: number;
   evidence_status?: "verified_document" | "search_utility" | "fallback";
+  // [Quelle N] numbering from the server's source_map — lets the sources
+  // drawer show the same Q{n} index that the inline citation labels use.
+  source_index?: number;
 }
 
 interface RouteConfig {

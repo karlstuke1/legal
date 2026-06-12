@@ -18,25 +18,61 @@ describe("ChatPage state-transition gates", () => {
     "utf8",
   );
 
-  it("does NOT render SourcesPanel on the welcome screen (messages.length === 0)", () => {
-    // The welcome screen should stay clean — an empty sources sidebar
-    // next to "Wie kann ich helfen?" is UX noise, not utility. The panel
-    // mounts as soon as the first message is sent (messages.length > 0).
-    // This was the user's specific complaint on 2026-04-24: panel visible
-    // with empty state on welcome screen.
-    const sourcesPanelIdx = source.indexOf("<SourcesPanel");
-    expect(sourcesPanelIdx, "ChatPage must render a SourcesPanel").toBeGreaterThan(-1);
+  it("does NOT render the fixed SourcesPanel anymore (sources are inline + per-answer sheet)", () => {
+    // The right-side panel was replaced by inline citation labels plus the
+    // per-answer "Quellen (N)" sheet (MessageSourcesSheet). Re-introducing
+    // the fixed panel would duplicate the inline citations and resurrect
+    // the stale-on-follow-up bug it had.
+    expect(source).not.toContain("<SourcesPanel");
+    expect(source).not.toMatch(/import\s*\{[^}]*SourcesPanel[^}]*\}\s*from/);
+  });
+});
 
-    // Grab a generous window of context before the JSX — the gate
-    // expression lives on the same line or one line above.
-    const contextBefore = source.slice(Math.max(0, sourcesPanelIdx - 200), sourcesPanelIdx);
+describe("MessageBubble per-answer sources gates", () => {
+  const source = readFileSync(
+    resolve(__dirname, "../components/chat/MessageBubble.tsx"),
+    "utf8",
+  );
 
-    // Gate must reference messages.length > 0 specifically. `messages.length`
-    // alone (truthy check on a number) would be a different behavior that
-    // still renders on the welcome screen, so we assert the strict form.
-    expect(contextBefore, "SourcesPanel must be gated on messages.length > 0").toMatch(/messages\.length\s*>\s*0/);
+  it("renders the sources sheet only when the message actually has sources", () => {
+    // No "Quellen (0)" noise under answers without retrieval (exam mode,
+    // drafts, plain conversational replies).
+    const sheetIdx = source.indexOf("<MessageSourcesSheet");
+    expect(sheetIdx, "MessageBubble must render a MessageSourcesSheet").toBeGreaterThan(-1);
+    const contextBefore = source.slice(Math.max(0, sheetIdx - 200), sheetIdx);
+    expect(contextBefore, "sheet must be gated on sourceResults.length > 0").toMatch(/sourceResults\.length\s*>\s*0/);
+  });
+});
 
-    // Exam mode should still be excluded (separate business rule).
-    expect(contextBefore).toMatch(/mode\s*!==\s*"exam"/);
+describe("MessageSourcesSheet internal gate", () => {
+  const source = readFileSync(
+    resolve(__dirname, "../components/chat/MessageSourcesSheet.tsx"),
+    "utf8",
+  );
+
+  it("returns null when the normalized source count is zero", () => {
+    // Groups can exist while every result is deduped/empty — the count
+    // check uses the same normalization as the body, so trigger label
+    // and sheet content can never disagree.
+    expect(source).toMatch(/totalResults\s*===\s*0\)\s*return null/);
+  });
+});
+
+describe("use-chat-send follow-up source sync", () => {
+  const source = readFileSync(
+    resolve(__dirname, "../hooks/use-chat-send.ts"),
+    "utf8",
+  );
+
+  it("onDone pushes the merged source groups into sourceResults (guarded by chat id)", () => {
+    // Regression for the tester-reported bug: follow-up answers' sources
+    // (especially server-seeded ones) only landed in sourceResultsMap and
+    // every consumer of sourceResults kept showing the previous turn.
+    const idx = source.indexOf("setSourceResults(allSourceGroups)");
+    expect(idx, "onDone must sync sourceResults with allSourceGroups").toBeGreaterThan(-1);
+    const contextBefore = source.slice(Math.max(0, idx - 300), idx);
+    expect(contextBefore, "the sync must keep the stale-chat guard").toMatch(
+      /activeChatIdRef\.current\s*===\s*currentChatId/,
+    );
   });
 });

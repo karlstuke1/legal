@@ -19,7 +19,7 @@ import {
   openRouterChatCompletion,
 } from "../_shared/openrouter.ts";
 import { isEvidentiarySource } from "../_shared/source-evidence.ts";
-import { resolveExactRisRechtssatzSources } from "../_shared/ris-rechtssatz.ts";
+import { extractExplicitRsNumber, resolveExactRisRechtssatzSources } from "../_shared/ris-rechtssatz.ts";
 
 // Cost per token (USD). Model ids are stored exactly as reported by OpenRouter
 // so usage logs remain auditable after provider routing.
@@ -660,7 +660,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (!isExam && !hasExplicitNormReference(lastUserMsg)) {
+    // An explicitly named RS number always triggers Rechtssatz seeding —
+    // even when the message also contains a § reference ("Warum RS0034949
+    // statt § 1497 ABGB?"), which previously routed norm-only.
+    if (!isExam && (extractExplicitRsNumber(lastUserMsg) || !hasExplicitNormReference(lastUserMsg))) {
       const exactRechtssatzSources = await resolveExactRisRechtssatzSources(lastUserMsg);
       if (exactRechtssatzSources.length > 0) {
         allNumberedSources = dedupeNumberedSources([
@@ -814,7 +817,7 @@ Deno.serve(async (req) => {
       } else {
         allMessages.push({
           role: "system",
-          content: "## KEINE QUELLEN GEFUNDEN\n\nDie Tool-Suche hat keine Ergebnisse geliefert. Du darfst KEINE [Quelle N]-Tokens, Quellenlisten, Fußnoten, Aktenzeichen, RS-Nummern, ECLI-Identifier oder konkrete Geschäftszahlen schreiben — auch nicht aus deinem Trainingswissen. Verwende stattdessen \"vgl. ständige Rechtsprechung\" oder lass die Quellenangabe weg.",
+          content: "## KEINE QUELLEN GEFUNDEN\n\nDie Tool-Suche hat keine Ergebnisse geliefert. Du darfst KEINE [Quelle N]-Tokens, Quellenlisten, Fußnoten, Aktenzeichen, RS-Nummern, ECLI-Identifier oder konkrete Geschäftszahlen schreiben — auch nicht aus deinem Trainingswissen. Verwende stattdessen \"vgl. ständige Rechtsprechung\" oder lass die Quellenangabe weg. Erkläre diese Regeln nicht im Antworttext — antworte einfach inhaltlich ohne konkrete Zitate.",
         });
         console.log("[chat] Empty source list — emitted no-sources prohibition");
       }

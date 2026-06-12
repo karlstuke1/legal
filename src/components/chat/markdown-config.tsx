@@ -161,6 +161,13 @@ export function preprocessContent(text: string, sourceResults: SourceGroup[], ap
     }))
   );
 
+  // Normalized URLs of this message's VERIFIED sources. Links pointing at
+  // one of these survive the direct-doc stripper below — they were built
+  // by our own render pipeline from the source_map, not by the model.
+  const verifiedUrlSet = new Set(
+    allSources.map(s => normalizeRisUrl(s.url || "")).filter(Boolean)
+  );
+
   // Replace patterns like [vgl. FINDOK: Title...] or [Quelle: RIS – Title]
   processed = processed.replace(
     /\[(?:vgl\.\s*)?(?:Quelle:\s*)?(\w+)[\s:–-]+([^\]]{5,})\]/gi,
@@ -250,18 +257,28 @@ export function preprocessContent(text: string, sourceResults: SourceGroup[], ap
   // links repeatedly (e.g. "§ 33 FinStrG" → Doppelbesteuerungs-Abkommen
   // Luxemburg § 33 because the model guessed the wrong Gesetzesnummer).
   //
-  // Strategy: strip the URL from any [<text>](<RIS direct-doc URL>),
-  // leaving just <text>. Then the citation-rewriters below re-link the
-  // plain text either via findSourceUrl (using retrieval-trusted URLs
-  // from `allSources` that are STILL in scope here) or via the safe
-  // search-URL fallback. Retrieved-correct URLs survive because the
-  // matching source is still in allSources; hallucinated ones get
-  // replaced with a RIS search of the citation text — guaranteed to
-  // never point at the wrong document.
+  // EXEMPTION: links whose URL matches a verified per-message source
+  // (verifiedUrlSet) were built by our own token renderer from the
+  // server's source_map — keep them intact. This also repairs old
+  // persisted answers whose footnote links to Rechtssatz Dokument.wxe
+  // URLs used to be stripped down to bare superscripts.
+  //
+  // Strategy for the rest: strip the URL from any
+  // [<text>](<RIS direct-doc URL>), leaving just <text>. Then the
+  // citation-rewriters below re-link the plain text either via
+  // findSourceUrl (using retrieval-trusted URLs from `allSources` that
+  // are STILL in scope here) or via the safe search-URL fallback.
+  // Retrieved-correct URLs survive because the matching source is still
+  // in allSources; hallucinated ones get replaced with a RIS search of
+  // the citation text — guaranteed to never point at the wrong document.
   // ============================================================
   processed = processed.replace(
-    /\[([^\]]+?)\]\(https?:\/\/(?:www\.)?ris\.bka\.gv\.at\/(?:Norm)?Dokument\.wxe\?[^)]+\)/g,
-    "$1",
+    /\[([^\]]+?)\]\((https?:\/\/(?:www\.)?ris\.bka\.gv\.at\/(?:Norm)?Dokument\.wxe\?[^)]+)\)/g,
+    (full, label: string, url: string) => {
+      // The token renderer escapes ")" as %29 — undo before comparing.
+      const normalized = normalizeRisUrl(url.replace(/%29/g, ")"));
+      return verifiedUrlSet.has(normalized) ? full : label;
+    },
   );
 
   // Inline citations must stay clickable. The balance we strike:
